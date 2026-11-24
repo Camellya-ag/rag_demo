@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import threading
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from backend.app.config import (
@@ -11,6 +13,7 @@ from backend.app.config import (
     QA_PAIRS_FILE,
     QA_PAIRS_FIXTURE,
     QA_PAIRS_JSONL,
+    QA_PAIRS_SNAPSHOT_DIR,
     QA_PAIR_MAX,
 )
 from backend.app.services.source_loader import source_loader
@@ -44,7 +47,11 @@ class QAPairStore:
     def __init__(self) -> None:
         self.enabled = QA_PAIRS_ENABLED
         self.max_items = QA_PAIR_MAX
+        self._lock = threading.RLock()
         self._records: list[QaPairRecord] = []
+        self._loaded_version: str | None = None
+        self._loaded_collection: str | None = None
+        self._loaded_source: Path | None = None
         self.reload()
 
     def _ensure_jsonl(self) -> None:
@@ -66,13 +73,66 @@ class QAPairStore:
                 pass
 
     def reload(self) -> None:
+        with self._lock:
+            state = store.get_state()
+            self._load_records_for_state(state)
+
+    def sync_with_state(self) -> None:
+        with self._lock:
+            state = store.get_state()
+            version = self._version_for_query(state)
+            collection = state.get("query_collection") or state.get("active_collection")
+            if version == self._loaded_version and collection == self._loaded_collection:
+                return
+            self._load_records_for_state(state)
+
+    @staticmethod
+    def _version_for_query(state: dict[str, Any]) -> str | None:
+        mode = state.get("query_mode", "none")
+        if mode == "dev_sample":
+            return state.get("sample_version") or state.get("active_version")
+        if mode == "production":
+            return state.get("production_version") or state.get("active_version")
+        return state.get("active_version")
+
+    @classmethod
+    def resolve_snapshot_path(cls, version: str | None, *, state: dict[str, Any] | None = None) -> Path | None:
+        if not version:
+            return None
+        QA_PAIRS_SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+        versioned = QA_PAIRS_SNAPSHOT_DIR / f"{version}.jsonl"
+        if versioned.exists():
+            return versioned
+        state = state or store.get_state()
+        bound_versions = {
+            v
+            for v in (
+                state.get("active_version"),
+                state.get("production_version"),
+                state.get("sample_version"),
+            )
+            if v
+        }
+        if version in bound_versions and QA_PAIRS_JSONL.exists():
+            return QA_PAIRS_JSONL
+        return None
+
+    def _load_records_for_state(self, state: dict[str, Any]) -> None:
         self._records = []
+        self._loaded_version = None
+        self._loaded_collection = None
+        self._loaded_source = None
         if not self.enabled:
             return
         self._ensure_jsonl()
-        if not QA_PAIRS_JSONL.exists():
+        version = self._version_for_query(state)
+        collection = state.get("query_collection") or state.get("active_collection")
+        source = self.resolve_snapshot_path(version, state=state)
+        if source is None or not source.exists():
+            self._loaded_version = version
+            self._loaded_collection = collection
             return
-        for line in QA_PAIRS_JSONL.read_text(encoding="utf-8").splitlines():
+        for line in source.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line:
                 continue
@@ -100,6 +160,9 @@ class QAPairStore:
             )
             if len(self._records) >= self.max_items:
                 break
+        self._loaded_version = version
+        self._loaded_collection = collection
+        self._loaded_source = source
 
     def status(self) -> dict[str, Any]:
         verified = sum(1 for r in self._records if r.verified)
@@ -136,7 +199,8 @@ class QAPairStore:
             "loaded": len(self._records),
             "verified": verified,
             "max": self.max_items,
-            "source": QA_PAIRS_JSONL.name,
+            "source": self._loaded_source.name if self._loaded_source else QA_PAIRS_JSONL.name,
+            "snapshot_version": self._loaded_version,
             "status": status,
             "scope": scope,
             "query_mode": query_mode,
@@ -170,6 +234,7 @@ class QAPairStore:
         return inter / len(q)
 
     def recall(self, original: str, rewritten: str, limit: int = 5) -> list[dict[str, Any]]:
+        self.sync_with_state()
         if not self.enabled or not self._records:
             return []
         query = f"{original} {rewritten}".strip()

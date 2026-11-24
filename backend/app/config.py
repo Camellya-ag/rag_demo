@@ -128,6 +128,7 @@ CORS_ORIGINS = [
 ]
 
 QA_PAIRS_JSONL = ROOT / "backend" / "data" / "qa_pairs.jsonl"
+QA_PAIRS_SNAPSHOT_DIR = ROOT / "backend" / "data" / "qa_snapshots"
 QA_PAIRS_FIXTURE = ROOT / "backend" / "data" / "fixtures" / "qa_pairs.sample.jsonl"
 QA_PAIRS_ENABLED = os.getenv("XIYOU_QA_PAIRS_ENABLED", "true").lower() in {"1", "true", "yes"}
 QA_PAIR_MAX = int(os.getenv("XIYOU_QA_PAIR_MAX", "512"))

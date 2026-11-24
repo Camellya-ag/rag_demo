@@ -5,6 +5,7 @@ import os
 import re
 import threading
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol
@@ -12,6 +13,7 @@ from typing import Any, Protocol
 from backend.app.config import (
     CHUNK_OVERLAP,
     CHUNK_SIZE,
+    QA_PAIRS_SNAPSHOT_DIR,
     QA_PAIRS_JSONL,
     QA_QUESTIONS_PER_CHAPTER,
     SOURCE_FILE,
@@ -448,6 +450,7 @@ class QaGenerationService:
         self._llm_client = llm_client
         self._cancel_event = threading.Event()
         self._active = False
+        self._io_lock = threading.RLock()
 
     def cancel(self) -> None:
         self._cancel_event.set()
@@ -703,11 +706,28 @@ class QaGenerationService:
             message=message,
         )
 
-    def persist(self, records: list[QaGenerationRecord], *, append: bool = True) -> int:
-        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+    def persist(
+        self,
+        records: list[QaGenerationRecord],
+        *,
+        append: bool = True,
+        output_path=None,
+    ) -> int:
+        target = output_path or self.output_path
+        with self._io_lock:
+            return self._write_records(records, append=append, output_path=target)
+
+    def _write_records(
+        self,
+        records: list[QaGenerationRecord],
+        *,
+        append: bool,
+        output_path,
+    ) -> int:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         existing: dict[str, dict[str, Any]] = {}
-        if append and self.output_path.exists():
-            for line in self.output_path.read_text(encoding="utf-8").splitlines():
+        if append and output_path.exists():
+            for line in output_path.read_text(encoding="utf-8").splitlines():
                 line = line.strip()
                 if not line:
                     continue
@@ -718,10 +738,32 @@ class QaGenerationService:
                 existing[str(row.get("id"))] = row
         for row in records:
             existing[row.id] = row.to_dict()
-        with self.output_path.open("w", encoding="utf-8") as fh:
+        with output_path.open("w", encoding="utf-8") as fh:
             for row in existing.values():
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")
         return len(records)
+
+    def publish_production_records(self, records: list[QaGenerationRecord]) -> int:
+        """覆盖写入正式问答文件，供索引与 QA 检索同步发布。"""
+        with self._io_lock:
+            return self._write_records(records, append=False, output_path=self.output_path)
+
+    def version_snapshot_path(self, version: str):
+        safe = (version or "").strip()
+        if not safe:
+            raise ValueError("missing_index_version_for_qa_snapshot")
+        return QA_PAIRS_SNAPSHOT_DIR / f"{safe}.jsonl"
+
+    def write_version_snapshot(self, version: str, records: list[QaGenerationRecord]) -> int:
+        """按索引版本写入隔离快照，不修改共享 qa_pairs.jsonl。"""
+        path = self.version_snapshot_path(version)
+        with self._io_lock:
+            return self._write_records(records, append=False, output_path=path)
+
+    @contextmanager
+    def production_publish_lock(self):
+        with self._io_lock:
+            yield
 
 
 qa_generation_service = QaGenerationService()

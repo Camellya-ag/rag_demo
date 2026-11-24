@@ -1,7 +1,8 @@
 import { PIPELINE_STEPS } from './pipeline'
 import { formatCost, formatUnknownNumber } from './format'
 
-const SECRET_KEY_RE = /(api[_-]?key|authorization|auth|token|secret|password|bearer|dashscope|credential)/i
+const SECRET_KEY_RE =
+  /(api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|secret|password|bearer|dashscope|credential)/i
 const MAX_PROMPT_CHARS = 12000
 
 function isPlainObject(v) {
@@ -46,6 +47,12 @@ function formatRows(title, rows, formatter) {
   return lines
 }
 
+function formatHitRow(r) {
+  const label = r.chapterLabel || r.chapter_title || r.chapterTitle || ''
+  const score = r.scoreText ?? r.score ?? '未知'
+  return `${r.id} | ${label} | ${score}`
+}
+
 function summarizeHits(hits = []) {
   return hits.map((hit, i) => {
     const channel = hit.channel === 'qa_pair' || hit.qaPairHit ? '问答映射' : '原文分块'
@@ -69,10 +76,16 @@ function appendStageDetail(stepKey, detail, lines) {
   if (stepKey === 'retrieve') {
     const size = safe.indexSize ?? '未知'
     push(lines, `  索引规模：${size} 个分块`)
-    push(lines, '  [稠密召回]')
-    lines.push(...formatRows('稠密', safe.dense?.items, (r) => `${r.id} | ${r.chapterLabel || ''} | ${r.scoreText || r.score}`))
+    push(lines, '  [稠密召回·原问]')
+    lines.push(
+      ...formatRows('稠密原问', safe.dense_original?.items, formatHitRow)
+    )
+    push(lines, '  [稠密召回·改写]')
+    lines.push(
+      ...formatRows('稠密改写', safe.dense_rewritten?.items, formatHitRow)
+    )
     push(lines, '  [稀疏召回]')
-    lines.push(...formatRows('稀疏', safe.sparse?.items, (r) => `${r.id} | ${r.chapterLabel || ''} | ${r.scoreText || r.score}`))
+    lines.push(...formatRows('稀疏', safe.sparse?.items, formatHitRow))
     push(lines, '  [问答对召回]')
     lines.push(...formatRows('问答对', safe.qa_pairs, (r) => `${r.id} | ${r.question || ''} | ${r.scoreText || r.score} | 映射 ${(r.mapped_chunk_ids || r.mappedChunkIds || []).join(',') || '未知'}`))
     if (safe.sparse_queries) push(lines, `  稀疏查询：${JSON.stringify(redactSecrets(safe.sparse_queries))}`)
@@ -109,7 +122,13 @@ function appendStageDetail(stepKey, detail, lines) {
   }
   if (stepKey === 'embed') {
     push(lines, `  模型：${safe.model || '未知'} | 维度 ${safe.dim || '未知'}`)
-    push(lines, `  输入：${safe.input || '未返回'}`)
+    const queries = Array.isArray(safe.queries)
+      ? safe.queries
+      : safe.input
+        ? [safe.input]
+        : []
+    if (!queries.length) push(lines, '  查询：未返回')
+    else queries.forEach((q, idx) => push(lines, `  查询 ${idx + 1}：${q}`))
     push(lines, `  tokens：${formatUnknownNumber(safe.tokens)}`)
     return
   }

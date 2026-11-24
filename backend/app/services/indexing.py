@@ -174,12 +174,6 @@ class IndexingService:
                 )
                 qa_pair_count = generation_result.verified_count
                 qa_cost = generation_result.cost
-                if generation_result.records and mode in PRODUCTION_MODES:
-                    qa_generation_service.persist(
-                        generation_result.records,
-                        append=True,
-                    )
-                qa_pair_store.reload()
                 if cost_so_far is not None and qa_cost.amount is not None:
                     cost_so_far = round(cost_so_far + qa_cost.amount, 6)
                 elif qa_cost.amount is None:
@@ -223,7 +217,14 @@ class IndexingService:
                         "query_mode": "dev_sample",
                         "message": "开发样本索引完成，未替换生产索引",
                     })
-                store.update_state(state_patch)
+                if mode in PRODUCTION_MODES:
+                    qa_generation_service.write_version_snapshot(version, generation_result.records)
+                    with qa_generation_service.production_publish_lock():
+                        qa_generation_service.publish_production_records(generation_result.records)
+                        store.update_state(state_patch)
+                        qa_pair_store.sync_with_state()
+                else:
+                    store.update_state(state_patch)
                 store.update_job(
                     job_id,
                     status="succeeded",

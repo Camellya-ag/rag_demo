@@ -159,6 +159,9 @@ class RagChatService:
             return {"text": "", "hits": [], "meta": {"trace_id": trace_id, "cost": total_cost}, "trace": trace}
 
         t0 = time.perf_counter()
+        state = store.get_state()
+        collection = state.get("query_collection") or state.get("active_collection")
+        qa_pair_store.sync_with_state()
         sparse_queries = [rewritten["original"], rewritten["rewritten"]]
         if rewritten.get("keywords"):
             sparse_queries.append(" ".join(rewritten["keywords"][:6]))

@@ -1,6 +1,6 @@
 # 西游问典项目交接
 
-更新时间：2026-11-24 19:45。**需求「完成后端与联调」已收尾。**
+更新时间：2026-11-24 22:30。**核心功能已闭环；索引与问答对按版本发布。**
 
 ## 交付结论
 
@@ -11,9 +11,15 @@
 | RAG 链路 | 改写+双路稠密+稀疏+QA→RRF→rerank→生成+trace |
 | 前端 | 双栏、背景图、真实分布图、全链路弹窗/复制 |
 | 测试 | 后端 unittest 18/18；Playwright 冒烟+集成 |
+| 索引发布 | production 成功：版本快照 + 正式 qa_pairs.jsonl 同事务切换；失败不污染旧索引/旧 QA |
 | Git | 已提交并推送 `main`（见下方提交说明） |
 | qa_pilot | 已删除；样例见 `backend/data/fixtures/qa_pairs.sample.jsonl` |
 | 单价 | `backend/docs/PRICING.md`（华北2北京官方原价换算） |
+
+## 核心功能说明
+
+- 查询前 `qa_pair_store.sync_with_state()`，按 `query_mode` 与版本读取 `backend/data/qa_snapshots/{version}.jsonl`；无快照时兼容现有 `qa_pairs.jsonl`（当前 production `v20261124193025`）。
+- 前端全链路复制日志：`traceLog.js` 展示稠密原问/改写双路、真实 tokens，密钥字段脱敏。
 
 ## 运行
 
