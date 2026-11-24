@@ -40,6 +40,7 @@ export async function runRagQuery({
       onHits: callbacks.onHits,
       onToken: callbacks.onToken,
       onAnswer: callbacks.onAnswer,
+      onTrace: callbacks.onTrace,
       onError: callbacks.onError
     },
     signal

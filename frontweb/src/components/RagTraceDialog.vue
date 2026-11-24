@@ -64,6 +64,7 @@ async function copyLog() {
     <div v-if="trace" class="dlg-body">
       <RetrievalPanel
         embedded
+        expand-all
         :hits="trace.hits || []"
         :stages="trace.stages || {}"
         :query="trace.query || ''"

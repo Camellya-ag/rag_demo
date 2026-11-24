@@ -227,17 +227,23 @@ async function ask(question, reuse = false) {
         onAnswer: (data) => {
           answerMsg.text = data.text || answerMsg.text
           answerMsg.status = 'done'
-          answerMsg.hits = data.hits || answerMsg.hits
+          if (data.hits?.length) answerMsg.hits = data.hits
           if (answerMsg.trace) {
             answerMsg.trace.hits = answerMsg.hits
             mergeBackendTrace(answerMsg.trace, data.trace)
           }
-          answerMsg.meta = {
-            latency: data.latency ?? data.meta?.latency,
-            tokens: data.tokens ?? data.meta?.tokens,
-            cost: data.cost ?? data.meta?.cost,
-            followUps: data.followUps || data.meta?.followUps || []
+          const nextMeta = {
+            latency: data.latency ?? data.meta?.latency ?? answerMsg.meta?.latency,
+            tokens: data.tokens ?? data.meta?.tokens ?? answerMsg.meta?.tokens,
+            cost: data.cost ?? data.meta?.cost ?? answerMsg.meta?.cost,
+            followUps: data.followUps || data.meta?.followUps || answerMsg.meta?.followUps || []
           }
+          if (Object.values(nextMeta).some((v) => v !== undefined && v !== null && v !== '')) {
+            answerMsg.meta = { ...(answerMsg.meta || {}), ...nextMeta }
+          }
+        },
+        onTrace: (trace) => {
+          if (answerMsg.trace && trace) mergeBackendTrace(answerMsg.trace, typeof trace === 'object' && trace.trace ? trace.trace : trace)
         },
         onError: (error) => {
           answerMsg.status = 'error'

@@ -6,6 +6,7 @@ import { PIPELINE_STEPS } from '../lib/pipeline'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
+  expandAll: { type: Boolean, default: false },
   hits: { type: Array, default: () => [] },
   stages: { type: Object, required: true },
   query: { type: String, default: '' },
@@ -14,23 +15,44 @@ const props = defineProps({
 const emit = defineEmits(['focus-hit'])
 
 const openKey = ref('')
+const collapsedKeys = ref(new Set())
 const dialogVisible = ref(false)
 const dialogTitle = ref('')
 const dialogKind = ref('')
 const dialogDetail = ref(null)
 
+const autoExpandAll = computed(() => props.expandAll || props.embedded)
+
 watch(() => props.stages, (stages) => {
   const running = PIPELINE_STEPS.find((step) => stages[step.key]?.status === 'running')
-  if (running) {
+  if (running && !autoExpandAll.value) {
     openKey.value = running.key
     return
   }
   const idle = PIPELINE_STEPS.every((step) => (stages[step.key]?.status || 'idle') === 'idle')
-  if (idle) openKey.value = ''
+  if (idle) {
+    openKey.value = ''
+    collapsedKeys.value = new Set()
+  }
 }, { deep: true })
 
 function toggle(key) {
+  if (autoExpandAll.value) {
+    const next = new Set(collapsedKeys.value)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    collapsedKeys.value = next
+    return
+  }
   openKey.value = openKey.value === key ? '' : key
+}
+
+function isStepOpen(key) {
+  const status = stageOf(key).status || 'idle'
+  if (status === 'idle') return false
+  if (autoExpandAll.value) return !collapsedKeys.value.has(key)
+  if (status === 'running') return true
+  return openKey.value === key
 }
 
 function stageOf(key) {
@@ -66,8 +88,24 @@ const highlights = computed(() => props.hits.map((hit) => ({
   html: highlightTerms(hit.chunk?.text || '', props.query)
 })))
 
+const inlineLimit = computed(() => (autoExpandAll.value ? 12 : 3))
+
 function preview(items) {
-  return (items || []).slice(0, 3)
+  return (items || []).slice(0, inlineLimit.value)
+}
+
+function retrieveDenseOriginal(detail = {}) {
+  return detail.dense_original || detail.denseOriginal || detail.dense || { metric: '余弦相似度', items: [] }
+}
+
+function retrieveDenseRewritten(detail = {}) {
+  return detail.dense_rewritten || detail.denseRewritten || { metric: '余弦相似度', items: [] }
+}
+
+function embedQueries(detail = {}) {
+  if (Array.isArray(detail.queries) && detail.queries.length) return detail.queries
+  if (detail.input) return [detail.input]
+  return []
 }
 
 function openDialog(kind, title, detail) {
@@ -82,6 +120,14 @@ function rankPair(row) {
   const sparse = row.sparseRank ? `稀疏 ${row.sparseRank}` : '稀疏 —'
   const qa = row.qaRank ? `问答 ${row.qaRank}` : (row.qa_pair_hit || row.qaPairHit ? '问答命中' : '问答 —')
   return `${dense} / ${sparse} / ${qa}`
+}
+
+const FUSION_CHANNEL_LABELS = ['稠密原问', '稠密改写', '稀疏', '问答映射']
+
+function fusionChannelRanks(row) {
+  if (row.denseRank || row.sparseRank || row.qaRank) return rankPair(row)
+  const parts = (row.rrf_ranks || []).map(([idx, rank]) => `${FUSION_CHANNEL_LABELS[idx] || `路${Number(idx) + 1}`} #${rank}`)
+  return parts.length ? parts.join(' · ') : '未命中各路名次'
 }
 
 function focusQaRow(row) {
@@ -125,33 +171,54 @@ function focusQaRow(row) {
                   {{ formatCost(stageOf(step.key).cost) }}
                 </span>
                 <span class="trace-time">{{ statusText(step) }}</span>
-                <el-icon class="trace-chevron" :class="{ open: openKey === step.key }"><ArrowDown /></el-icon>
+                <el-icon class="trace-chevron" :class="{ open: isStepOpen(step.key) }"><ArrowDown /></el-icon>
               </span>
             </button>
 
-            <div v-if="openKey === step.key && stageOf(step.key).detail" class="trace-panel">
+            <div v-if="isStepOpen(step.key) && stageOf(step.key).detail" class="trace-panel">
               <template v-if="step.key === 'rewrite'">
                 <div class="kv"><span>原问题</span><p>{{ stageOf(step.key).detail.original }}</p></div>
                 <div class="kv"><span>改写后</span><p>{{ stageOf(step.key).detail.rewritten }}</p></div>
                 <div class="kv"><span>理由</span><p>{{ stageOf(step.key).detail.reason }}</p></div>
                 <div class="kv"><span>方式</span><p>{{ stageOf(step.key).detail.method }} · 本地规则，费用 {{ formatCost(0) }}</p></div>
+                <div v-if="(stageOf(step.key).detail.keywords || []).length" class="kv">
+                  <span>检索关键词</span><p>{{ (stageOf(step.key).detail.keywords || []).join('、') }}</p>
+                </div>
               </template>
 
               <template v-else-if="step.key === 'embed'">
                 <div class="kv"><span>模型</span><p>{{ stageOf(step.key).detail.model }} · {{ stageOf(step.key).detail.dim }} 维</p></div>
-                <div class="kv"><span>输入</span><p>{{ stageOf(step.key).detail.input }}</p></div>
+                <div class="kv"><span>输入</span>
+                  <p v-if="embedQueries(stageOf(step.key).detail).length === 1">{{ embedQueries(stageOf(step.key).detail)[0] }}</p>
+                  <ul v-else class="embed-query-list">
+                    <li v-for="(q, idx) in embedQueries(stageOf(step.key).detail)" :key="idx"><b>{{ idx === 0 ? '原问' : '改写' }}</b> {{ q }}</li>
+                  </ul>
+                </div>
                 <div class="kv"><span>向量</span><p>前 8 维</p></div>
-                <div class="vec-chips">
+                <div v-if="(stageOf(step.key).detail.preview || []).length" class="vec-chips">
                   <i v-for="(value, index) in stageOf(step.key).detail.preview" :key="index">{{ value }}</i>
                 </div>
+                <div v-else class="trace-desc">改写向量预览未返回</div>
                 <div class="kv" style="margin-top: 6px"><span>用量</span><p>{{ stageOf(step.key).detail.tokens }} tokens · {{ stageOf(step.key).detail.price }}</p></div>
               </template>
 
               <template v-else-if="step.key === 'retrieve'">
                 <div class="kv"><span>索引</span><p>{{ (stageOf(step.key).detail.indexSize || 0).toLocaleString('zh-CN') }} 个分块 · 稠密/稀疏/问答对 三路召回</p></div>
-                <div class="lane-title">稠密 · {{ stageOf(step.key).detail.dense?.metric || '余弦相似度' }}</div>
+                <div v-if="(stageOf(step.key).detail.sparse_queries || []).length" class="kv">
+                  <span>稀疏查询</span><p>{{ stageOf(step.key).detail.sparse_queries.join(' / ') }}</p>
+                </div>
+                <div class="lane-title">稠密 · 原问 · {{ retrieveDenseOriginal(stageOf(step.key).detail).metric || '余弦相似度' }}</div>
                 <div class="mini-list">
-                  <button v-for="row in preview(stageOf(step.key).detail.dense?.items)" :key="`d-${row.id}`" type="button" class="mini-row" @click="emit('focus-hit', row.id)">
+                  <button v-for="row in preview(retrieveDenseOriginal(stageOf(step.key).detail).items)" :key="`d0-${row.id}`" type="button" class="mini-row" @click="emit('focus-hit', row.id)">
+                    <b>{{ row.rank }}</b>
+                    <span>{{ row.id }}</span>
+                    <span class="grow">{{ row.chapterLabel }}</span>
+                    <em>{{ row.scoreText }}</em>
+                  </button>
+                </div>
+                <div class="lane-title">稠密 · 改写 · {{ retrieveDenseRewritten(stageOf(step.key).detail).metric || '余弦相似度' }}</div>
+                <div class="mini-list">
+                  <button v-for="row in preview(retrieveDenseRewritten(stageOf(step.key).detail).items)" :key="`d1-${row.id}`" type="button" class="mini-row" @click="emit('focus-hit', row.id)">
                     <b>{{ row.rank }}</b>
                     <span>{{ row.id }}</span>
                     <span class="grow">{{ row.chapterLabel }}</span>
@@ -182,11 +249,14 @@ function focusQaRow(row) {
 
               <template v-else-if="step.key === 'fusion'">
                 <div class="kv"><span>方法</span><p>{{ stageOf(step.key).detail.method }} · k = {{ stageOf(step.key).detail.k }}</p></div>
+                <div v-if="(stageOf(step.key).detail.channels || []).length" class="kv">
+                  <span>参与路</span><p>{{ (stageOf(step.key).detail.channels || []).join(' · ') }}</p>
+                </div>
                 <div class="mini-list">
                   <button v-for="row in preview(stageOf(step.key).detail.items)" :key="row.id" type="button" class="mini-row" @click="emit('focus-hit', row.id)">
                     <b>{{ row.rank }}</b>
                     <span>{{ row.id }}</span>
-                    <span class="grow">{{ rankPair(row) }}</span>
+                    <span class="grow">{{ fusionChannelRanks(row) }}</span>
                     <em>{{ row.scoreText }}</em>
                   </button>
                 </div>
@@ -196,6 +266,7 @@ function focusQaRow(row) {
               <template v-else-if="step.key === 'rerank'">
                 <div class="kv"><span>模型</span><p>{{ stageOf(step.key).detail.model || 'rerank 模型' }}</p></div>
                 <div class="kv"><span>策略</span><p>重排始终启用，按 rerank 分数选取 Top-K。</p></div>
+                <div v-if="stageOf(step.key).detail.dropped != null" class="kv"><span>过滤</span><p>低于阈值丢弃 {{ stageOf(step.key).detail.dropped }} 条</p></div>
                 <div class="kv"><span>单价</span><p>{{ stageOf(step.key).detail.tokens ?? '未知' }} tokens · {{ stageOf(step.key).detail.price || '无法估算' }}</p></div>
                 <div class="mini-list">
                   <button v-for="row in preview(stageOf(step.key).detail.items)" :key="row.id" type="button" class="mini-row" @click="emit('focus-hit', row.id)">
@@ -222,7 +293,7 @@ function focusQaRow(row) {
                 <div class="kv"><span>输出</span><p>{{ stageOf(step.key).detail.outputTokens }} tokens · {{ stageOf(step.key).detail.priceOut }}</p></div>
               </template>
             </div>
-            <div v-else-if="openKey === step.key" class="trace-desc">{{ stageOf(step.key).summary || '该步骤详情暂未返回' }}</div>
+            <div v-else-if="isStepOpen(step.key)" class="trace-desc">{{ stageOf(step.key).summary || '该步骤详情暂未返回' }}</div>
             <div v-else class="trace-desc">{{ stageOf(step.key).summary || '等待查询' }}</div>
           </div>
         </div>
@@ -264,8 +335,16 @@ function focusQaRow(row) {
 
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="720px" align-center append-to-body>
       <template v-if="dialogKind === 'retrieve' && dialogDetail">
-        <div class="lane-title">稠密 · {{ dialogDetail.dense.metric }}</div>
-        <el-table :data="dialogDetail.dense.items" size="small" @row-click="(row) => emit('focus-hit', row.id)">
+        <div class="lane-title">稠密 · 原问 · {{ retrieveDenseOriginal(dialogDetail).metric }}</div>
+        <el-table :data="retrieveDenseOriginal(dialogDetail).items" size="small" @row-click="(row) => emit('focus-hit', row.id)">
+          <el-table-column prop="rank" label="名次" width="64" />
+          <el-table-column prop="id" label="片段" width="90" />
+          <el-table-column prop="chapterLabel" label="回目" width="90" />
+          <el-table-column prop="scoreText" label="余弦" width="80" />
+          <el-table-column prop="snippet" label="摘要" />
+        </el-table>
+        <div class="lane-title" style="margin-top: 14px">稠密 · 改写 · {{ retrieveDenseRewritten(dialogDetail).metric }}</div>
+        <el-table :data="retrieveDenseRewritten(dialogDetail).items" size="small" @row-click="(row) => emit('focus-hit', row.id)">
           <el-table-column prop="rank" label="名次" width="64" />
           <el-table-column prop="id" label="片段" width="90" />
           <el-table-column prop="chapterLabel" label="回目" width="90" />
@@ -310,3 +389,15 @@ function focusQaRow(row) {
     </el-dialog>
   </aside>
 </template>
+
+<style scoped>
+.embed-query-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.embed-query-list li { margin: 4px 0; }
+.embed-query-list b { color: var(--muted); font-weight: 600; margin-right: 6px; }
+</style>

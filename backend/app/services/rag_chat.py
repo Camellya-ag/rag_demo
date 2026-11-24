@@ -145,8 +145,11 @@ class RagChatService:
             {
                 "model": "text-embedding-v4",
                 "dim": 1024,
+                "input": rewritten["rewritten"],
                 "queries": embed_inputs,
                 "tokens": usage.total_tokens,
+                "preview": [f"{float(v):.4f}" for v in (vectors[1] or vectors[0] or [])[:8]],
+                "price": "按 DashScope embedding 计费",
             },
         )
 
@@ -232,6 +235,8 @@ class RagChatService:
         else:
             dropped = []
         reranked = reranked[:top_k]
+        for i, row in enumerate(reranked, 1):
+            row["rerankRank"] = i
         rerank_detail = {
             "skipped": False,
             "model": rerank_client.model,

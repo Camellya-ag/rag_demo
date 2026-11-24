@@ -22,6 +22,8 @@ test('真实 RAG 问答与全链路弹窗', async ({ page }) => {
   const dialog = page.locator('.rag-trace-dialog')
   await expect(dialog.getByText('查询改写')).toBeVisible()
   await expect(dialog.locator('.trace-name', { hasText: '生成' })).toBeVisible()
+  await expect(dialog.getByText('稠密 · 原问')).toBeVisible()
+  await expect(dialog.locator('.trace-panel').first()).toBeVisible()
 
   await page.getByRole('button', { name: '复制全链路日志' }).click()
   await expect(page.getByText('全链路日志已复制')).toBeVisible({ timeout: 8000 })

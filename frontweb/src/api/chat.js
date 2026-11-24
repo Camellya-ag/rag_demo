@@ -94,10 +94,18 @@ function dispatchPacket(packet, handlers) {
     handlers.onToken?.(packet.text ?? packet.token ?? '')
     return
   }
-  if (type === 'answer' || type === 'done') {
+  if (type === 'trace') {
+    handlers.onTrace?.(packet.trace || packet)
+    return
+  }
+  if (type === 'answer') {
     const hits = (packet.hits || []).map((item, index) => normalizeHit(item, index))
     const meta = packet.meta || {}
     handlers.onAnswer?.({ ...packet, hits, meta, trace: packet.trace || meta.trace || null })
+    return
+  }
+  if (type === 'done') {
+    handlers.onDone?.(packet)
     return
   }
   if (type === 'error') {
