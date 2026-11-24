@@ -83,8 +83,21 @@ class QAPairStore:
             version = self._version_for_query(state)
             collection = state.get("query_collection") or state.get("active_collection")
             if version == self._loaded_version and collection == self._loaded_collection:
+                self.reconcile_state_qa_pair_count()
                 return
             self._load_records_for_state(state)
+            self.reconcile_state_qa_pair_count()
+
+    def reconcile_state_qa_pair_count(self) -> None:
+        """统一 state.qa_pair_count 与快照 verified 条数，避免接口口径不一致。"""
+        state = store.get_state()
+        if state.get("query_mode") not in {"production", "dev_sample"}:
+            return
+        verified = sum(1 for r in self._records if r.verified)
+        if verified <= 0:
+            return
+        if state.get("qa_pair_count") != verified:
+            store.update_state({"qa_pair_count": verified})
 
     @staticmethod
     def _version_for_query(state: dict[str, Any]) -> str | None:
@@ -228,6 +241,43 @@ class QAPairStore:
             "active_collection": active_collection,
             "note": note,
         }
+
+    def export_verified_records(self) -> list[dict[str, Any]]:
+        """供 Milvus 问答混合索引构建。"""
+        self.sync_with_state()
+        rows: list[dict[str, Any]] = []
+        for record in self._records:
+            if not record.verified:
+                continue
+            mapped = source_loader.find_chunk_ids_for_range(record.evidence.start_char, record.evidence.end_char)
+            rows.append(
+                {
+                    "id": record.id,
+                    "chapter": record.chapter,
+                    "chapter_title": record.chapter_title,
+                    "question": record.question,
+                    "answer_summary": record.answer_summary,
+                    "mapped_chunk_ids": mapped,
+                    "evidence": {
+                        "quote": record.evidence.quote,
+                        "start_char": record.evidence.start_char,
+                        "end_char": record.evidence.end_char,
+                    },
+                }
+            )
+        return rows
+
+    def qa_collection_ready(self, chunk_collection: str) -> bool:
+        if not self.enabled or not self._records:
+            return False
+        from backend.app.ai.rag.qa_milvus import qa_collection_for_chunk_collection
+
+        qa_coll = qa_collection_for_chunk_collection(chunk_collection)
+        if not qa_coll:
+            return False
+        from backend.app.ai.rag.milvus_repo import milvus_repo
+
+        return milvus_repo.count(qa_coll) > 0
 
     @staticmethod
     def _tokens(text: str) -> set[str]:

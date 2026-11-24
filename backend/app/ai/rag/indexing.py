@@ -4,14 +4,22 @@ import threading
 import uuid
 from datetime import datetime, timezone
 
-from backend.app.config import ALLOW_DEV_SAMPLE_INDEX, CHUNK_OVERLAP, CHUNK_SIZE, SAMPLE_CHAPTER_LIMIT, SAMPLE_CHUNK_LIMIT
+from backend.app.config import (
+    ALLOW_DEV_SAMPLE_INDEX,
+    CHUNK_OVERLAP,
+    CHUNK_SIZE,
+    QA_MILVUS_HYBRID,
+    SAMPLE_CHAPTER_LIMIT,
+    SAMPLE_CHUNK_LIMIT,
+)
 from backend.app.ai.rag.embedding_client import embedding_client
 from backend.app.ai.rag.milvus_repo import milvus_repo
 from backend.app.ai.rag.qa_generation import GenerationScope, GenerationScopeKind, qa_generation_service
 from backend.app.ai.rag.qa_pairs import qa_pair_store
+from backend.app.ai.rag.qa_milvus import qa_collection_for_chunk_collection, qa_milvus_index
 from backend.app.ai.rag.source_loader import source_loader
 from backend.app.ai.rag.state_store import store
-from backend.app.utils.pricing import Cost, cost_embed, cost_unknown
+from backend.app.utils.pricing import Cost, Usage, cost_embed, cost_unknown
 
 PRODUCTION_MODES = {"initial", "rebuild"}
 KNOWN_MODES = {"initial", "rebuild", "dev_sample"}
@@ -67,7 +75,10 @@ class IndexingService:
     def _estimate_qa_embed(qa_pair_count: int) -> Cost:
         if qa_pair_count <= 0:
             return cost_unknown("未生成问答对，无法估算 qa_embed")
-        return Cost(amount=0.0, usage_known=True, note="问答对映射为本地锚点与检索通道，不计付费向量化")
+        if not QA_MILVUS_HYBRID:
+            return Cost(amount=0.0, usage_known=True, note="问答对映射为本地锚点，不计付费向量化")
+        est_tokens = qa_pair_count * 24
+        return cost_embed(est_tokens, Usage(total_tokens=est_tokens, known=False))
 
     @staticmethod
     def _stage_payload(key: str, cost: Cost, usage: str) -> dict:
@@ -221,6 +232,10 @@ class IndexingService:
                     qa_generation_service.write_version_snapshot(version, generation_result.records)
                     with qa_generation_service.production_publish_lock():
                         qa_generation_service.publish_production_records(generation_result.records)
+                        if QA_MILVUS_HYBRID:
+                            snap_path = qa_generation_service.version_snapshot_path(version)
+                            qa_records = qa_milvus_index.load_records_from_path(snap_path)
+                            qa_milvus_index.ensure_index(collection, qa_records)
                         store.update_state(state_patch)
                         qa_pair_store.sync_with_state()
                 else:
@@ -241,6 +256,7 @@ class IndexingService:
             if collection and inserted:
                 try:
                     milvus_repo.drop_collection(collection)
+                    milvus_repo.drop_collection(qa_collection_for_chunk_collection(collection))
                 except Exception:
                     pass
             store.update_state({

@@ -4,16 +4,17 @@ import time
 import uuid
 from typing import Any, Callable
 
-from backend.app.config import CANDIDATE_LIMIT, DEFAULT_TOP_K, LLM_MODEL_DEFAULT
+from backend.app.config import CANDIDATE_LIMIT, DEFAULT_TOP_K, LLM_MODEL_DEFAULT, QA_MILVUS_HYBRID, RERANK_IN
 from backend.app.ai.rag.embedding_client import embedding_client
 from backend.app.ai.rag.llm_client import llm_client
 from backend.app.ai.rag.milvus_repo import milvus_repo
 from backend.app.ai.rag.qa_pairs import qa_pair_store
+from backend.app.ai.rag.qa_milvus import qa_collection_for_chunk_collection, qa_milvus_index
 from backend.app.ai.rag.rerank_client import rerank_client
 from backend.app.ai.rag.rewrite import rewrite_query
 from backend.app.ai.rag.state_store import store
 from backend.app.utils.pricing import Cost, Usage, cost_embed, cost_llm_for_model, cost_rerank
-from backend.app.utils.text import estimate_tokens, snippet
+from backend.app.utils.text import ensure_answer_citations, estimate_tokens, snippet
 
 StageEmitter = Callable[[str, dict[str, Any]], None]
 
@@ -168,34 +169,52 @@ class RagChatService:
         sparse_queries = [rewritten["original"], rewritten["rewritten"]]
         if rewritten.get("keywords"):
             sparse_queries.append(" ".join(rewritten["keywords"][:6]))
-        dense_original = milvus_repo.dense_search(collection, vectors[0], CANDIDATE_LIMIT)
-        dense_rewritten = milvus_repo.dense_search(collection, vectors[1], CANDIDATE_LIMIT)
-        sparse_merged: dict[str, dict[str, Any]] = {}
-        for q in sparse_queries:
-            q = str(q or "").strip()
-            if not q:
-                continue
-            for row in milvus_repo.sparse_search(collection, q, CANDIDATE_LIMIT):
-                prev = sparse_merged.get(row["id"])
-                if not prev or row["score"] > prev["score"]:
-                    sparse_merged[row["id"]] = row
-        sparse = sorted(sparse_merged.values(), key=lambda x: x["score"], reverse=True)[:CANDIDATE_LIMIT]
-        for i, row in enumerate(sparse, 1):
-            row["rank"] = i
-        qa_hits = qa_pair_store.recall(rewritten["original"], rewritten["rewritten"])
+        chunk_dense_o, chunk_sparse, chunk_fused = milvus_repo.hybrid_search(
+            collection, vectors[0], sparse_queries, CANDIDATE_LIMIT
+        )
+        _, _, chunk_fused_rw = milvus_repo.hybrid_search(collection, vectors[1], sparse_queries, CANDIDATE_LIMIT)
+
+        qa_hits: list[dict[str, Any]] = []
+        qa_hybrid_mode = "skipped"
+        if QA_MILVUS_HYBRID and qa_pair_store.enabled and qa_pair_store.export_verified_records():
+            qa_coll = qa_collection_for_chunk_collection(collection)
+            if milvus_repo.count(qa_coll) <= 0:
+                qa_milvus_index.ensure_index(collection, qa_pair_store.export_verified_records())
+            if qa_pair_store.qa_collection_ready(collection):
+                qa_hits = qa_milvus_index.hybrid_recall(qa_coll, vectors[1], sparse_queries, CANDIDATE_LIMIT)
+                qa_hybrid_mode = "milvus_hybrid"
+        if not qa_hits and qa_pair_store.enabled:
+            qa_hits = qa_pair_store.recall(rewritten["original"], rewritten["rewritten"])
+            qa_hybrid_mode = "local_keyword_fallback" if qa_hits else "skip"
+
         qa_channel = qa_pair_store.build_chunk_channel(collection, qa_hits, milvus_repo, limit=CANDIDATE_LIMIT)
+        qa_by_chunk: dict[str, dict[str, Any]] = {}
+        for src in qa_hits:
+            for cid in src.get("mapped_chunk_ids") or []:
+                qa_by_chunk[cid] = src
+        for hit in qa_channel:
+            hit.setdefault("qa_pair_hit", True)
+            src = qa_by_chunk.get(hit.get("id"))
+            if src:
+                hit["evidence_quote"] = src.get("evidence_quote") or ""
+                hit["matched_question"] = src.get("question") or hit.get("matched_question")
+
+        dense_original = chunk_dense_o
+        dense_rewritten = [r for r in chunk_fused_rw if r.get("id")]
         retrieve_detail = {
             "indexSize": milvus_repo.count(collection),
             "dense_original": {"metric": "余弦相似度", "items": dense_original},
-            "dense_rewritten": {"metric": "余弦相似度", "items": dense_rewritten},
-            "sparse": {"metric": "BM25", "items": sparse},
+            "dense_rewritten": {"metric": "余弦+BM25 融合", "items": chunk_fused_rw},
+            "sparse": {"metric": "BM25", "items": chunk_sparse},
+            "chunk_hybrid_original": {"metric": "稠密+BM25", "items": chunk_fused},
             "qa_pairs": qa_hits,
+            "qa_hybrid_mode": qa_hybrid_mode,
             "sparse_queries": sparse_queries,
         }
         trace["channels"] = {
             "dense_original": dense_original,
-            "dense_rewritten": dense_rewritten,
-            "sparse": sparse,
+            "dense_rewritten": chunk_fused_rw,
+            "sparse": chunk_sparse,
             "qa_pairs": qa_hits,
             "qa_chunks": qa_channel,
         }
@@ -203,32 +222,47 @@ class RagChatService:
             "retrieve",
             int((time.perf_counter() - t0) * 1000),
             Cost(0, usage_known=True),
-            f"稠密 {len(dense_original) + len(dense_rewritten)} · 稀疏 {len(sparse)} · QA {len(qa_channel)}",
+            f"原文混合 {len(chunk_fused)} · 改写混合 {len(chunk_fused_rw)} · QA {qa_hybrid_mode} {len(qa_channel)}",
             retrieve_detail,
         )
 
         t0 = time.perf_counter()
-        fused = milvus_repo.rrf_fuse_channels([dense_original, dense_rewritten, sparse, qa_channel])
+        fused = milvus_repo.rrf_fuse_channels([chunk_fused, chunk_fused_rw, qa_channel])
         fusion_detail = {
             "method": "RRF",
             "k": 60,
-            "channels": ["dense_original", "dense_rewritten", "sparse", "qa_chunks"],
+            "channels": ["chunk_hybrid_original", "chunk_hybrid_rewritten", "qa_chunks"],
             "items": fused,
         }
+        fused = fused[: max(RERANK_IN, top_k * 2)]
+        for i, row in enumerate(fused, 1):
+            row["rank"] = i
         trace["fusion"] = fusion_detail
         finish_stage("fusion", int((time.perf_counter() - t0) * 1000), Cost(0), f"合并 {len(fused)} 条", fusion_detail)
 
         t0 = time.perf_counter()
         docs = [row.get("text", "") for row in fused]
-        rerank_scores, rerank_usage = rerank_client.score(rewritten["rewritten"], docs)
-        rerank_cost = cost_rerank(rerank_usage.total_tokens or estimate_tokens(rewritten["rewritten"]) + sum(estimate_tokens(d) for d in docs), rerank_usage)
-        reranked = []
-        for row, score in zip(fused, rerank_scores):
-            item = dict(row)
-            item["rerankScore"] = float(score)
-            item["rerankText"] = f"{float(score):.3f}"
-            reranked.append(item)
-        reranked.sort(key=lambda x: x.get("rerankScore", 0), reverse=True)
+        rerank_degraded = False
+        rerank_error: str | None = None
+        rerank_usage = Usage()
+        try:
+            rerank_scores, rerank_usage = rerank_client.score(rewritten["rewritten"], docs)
+            rerank_cost = cost_rerank(
+                rerank_usage.total_tokens or estimate_tokens(rewritten["rewritten"]) + sum(estimate_tokens(d) for d in docs),
+                rerank_usage,
+            )
+            reranked = []
+            for row, score in zip(fused, rerank_scores):
+                item = dict(row)
+                item["rerankScore"] = float(score)
+                item["rerankText"] = f"{float(score):.3f}"
+                reranked.append(item)
+            reranked.sort(key=lambda x: x.get("rerankScore", 0), reverse=True)
+        except Exception as exc:
+            rerank_degraded = True
+            rerank_error = str(exc)
+            rerank_cost = Cost(0.0, usage_known=True, note="重排失败，已降级使用 RRF 归一化分")
+            reranked = milvus_repo.normalize_rrf_scores(fused)
         if threshold is not None:
             dropped = [r for r in reranked if r.get("rerankScore", 0) < threshold]
             reranked = [r for r in reranked if r.get("rerankScore", 0) >= threshold]
@@ -239,6 +273,8 @@ class RagChatService:
             row["rerankRank"] = i
         rerank_detail = {
             "skipped": False,
+            "degraded": rerank_degraded,
+            "error": rerank_error,
             "model": rerank_client.model,
             "threshold": threshold,
             "dropped": len(dropped),
@@ -258,7 +294,7 @@ class RagChatService:
         prompt = (
             f"{system_prompt}\n\n检索片段：\n"
             + ("\n\n".join(context_parts) if context_parts else "（无命中片段）")
-            + f"\n\n问题：{question}\n\n请用中文回答，并在句末使用 [n] 标注引用。"
+            + f"\n\n问题：{question}\n\n请用中文回答，并在句末使用 [1]、[2] 等序号标注引用来源。"
         )
         assemble_detail = {"ids": [h["id"] for h in hits], "tokens": estimate_tokens(prompt), "budget": 2048, "prompt": prompt}
         trace["assemble"] = assemble_detail
@@ -304,7 +340,7 @@ class RagChatService:
             answer_parts.append(text)
             emit("token", {"type": "token", "text": text})
 
-        answer = "".join(answer_parts).strip()
+        answer = ensure_answer_citations("".join(answer_parts).strip(), len(hits))
         out_tokens = usage.output_tokens or estimate_tokens(answer)
         in_tokens = usage.input_tokens or estimate_tokens(prompt)
         gen_cost = cost_llm_for_model(in_tokens, out_tokens, model=model, in_known=usage.known, out_known=usage.known)

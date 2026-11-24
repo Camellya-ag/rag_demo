@@ -42,6 +42,8 @@ CHUNK_OVERLAP = int(os.getenv("XIYOU_CHUNK_OVERLAP", "64"))
 RRF_K = 60
 DEFAULT_TOP_K = 4
 CANDIDATE_LIMIT = 16
+# 融合后送入 rerank 的候选上限（对齐流程图 rerank_in）
+RERANK_IN = int(os.getenv("XIYOU_RERANK_IN", "32"))
 
 SAMPLE_CHAPTER_LIMIT = int(os.getenv("XIYOU_SAMPLE_CHAPTERS", "3"))
 SAMPLE_CHUNK_LIMIT = int(os.getenv("XIYOU_SAMPLE_CHUNKS", "48"))
@@ -134,4 +136,5 @@ QA_PAIRS_ENABLED = os.getenv("XIYOU_QA_PAIRS_ENABLED", "true").lower() in {"1", 
 QA_PAIR_MAX = int(os.getenv("XIYOU_QA_PAIR_MAX", "512"))
 QA_QUESTIONS_PER_CHAPTER = int(os.getenv("XIYOU_QA_QUESTIONS_PER_CHAPTER", "3"))
 QA_AUTO_GENERATE = os.getenv("XIYOU_QA_AUTO_GENERATE", "false").lower() in {"1", "true", "yes"}
+QA_MILVUS_HYBRID = os.getenv("XIYOU_QA_MILVUS_HYBRID", "true").lower() in {"1", "true", "yes"}
 ALLOW_DEV_SAMPLE_INDEX = os.getenv("XIYOU_ALLOW_DEV_SAMPLE", "true").lower() in {"1", "true", "yes"}

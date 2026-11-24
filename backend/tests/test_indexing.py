@@ -77,7 +77,8 @@ class IndexingServiceTests(unittest.TestCase):
         )
         with patch.object(self.service, "_select_chunks", return_value=[fake_chunk]):
             self.service._run_job("job_x", "rebuild", "new_coll", "v_new")
-        milvus.drop_collection.assert_called_once_with("new_coll")
+        milvus.drop_collection.assert_any_call("new_coll")
+        milvus.drop_collection.assert_any_call("new_coll_qa")
         qa_gen.persist.assert_not_called()
         qa_gen.write_version_snapshot.assert_not_called()
         qa_store.sync_with_state.assert_not_called()
