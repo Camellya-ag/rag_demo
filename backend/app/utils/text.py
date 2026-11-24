@@ -141,7 +141,36 @@ def chunk_region_spans(
 
 
 def normalize_query_terms(text: str) -> list[str]:
-    terms = re.findall(r"[\u4e00-\u9fff]{2,8}", text or "")
+    """抽取检索用语义片段；优先保留固定专名，避免贪婪 2–8 字切出「…在五」「指山下」这类碎片。"""
+    raw = text or ""
+    if not raw.strip():
+        return []
+    protected = [
+        "孙悟空", "美猴王", "猪八戒", "沙悟净", "唐僧", "唐三藏",
+        "五指山", "花果山", "水帘洞", "蟠桃园", "大闹天宫", "炼丹炉", "八卦炉",
+        "如来佛祖", "观音菩萨", "玉皇大帝",
+    ]
+    work = raw
+    terms: list[str] = []
+    seen: set[str] = set()
+    for phrase in sorted(protected, key=len, reverse=True):
+        if phrase not in work:
+            continue
+        if phrase not in seen:
+            seen.add(phrase)
+            terms.append(phrase)
+        work = work.replace(phrase, " ")
+    work = re.sub(r"[，。！？；、\s？?]+", " ", work)
+    work = re.sub(r"^(请问|问一下|我想知道|帮我看看|告诉我)", "", work).strip()
+    for filler in ("为什么", "为啥", "怎么", "如何", "什么", "哪里", "是谁", "被", "在", "下", "的"):
+        work = work.replace(filler, " ")
+    for seg in re.findall(r"[\u4e00-\u9fff]{2,6}", work):
+        if seg in seen:
+            continue
+        seen.add(seg)
+        terms.append(seg)
+    if not terms:
+        terms = re.findall(r"[\u4e00-\u9fff]{2,6}", raw)
     seen, out = set(), []
     for term in terms:
         if term in seen:

@@ -134,6 +134,13 @@ function focusQaRow(row) {
   const target = row.mapped_chunk_ids?.[0] || row.mappedChunkIds?.[0] || row.id
   emit('focus-hit', target)
 }
+
+function rewriteChanged(detail = {}) {
+  if (detail.changed === true) return true
+  const a = String(detail.original || '').trim()
+  const b = String(detail.rewritten || '').trim()
+  return Boolean(a && b && a !== b)
+}
 </script>
 
 <template>
@@ -177,12 +184,29 @@ function focusQaRow(row) {
 
             <div v-if="isStepOpen(step.key) && stageOf(step.key).detail" class="trace-panel">
               <template v-if="step.key === 'rewrite'">
-                <div class="kv"><span>原问题</span><p>{{ stageOf(step.key).detail.original }}</p></div>
-                <div class="kv"><span>改写后</span><p>{{ stageOf(step.key).detail.rewritten }}</p></div>
-                <div class="kv"><span>理由</span><p>{{ stageOf(step.key).detail.reason }}</p></div>
-                <div class="kv"><span>方式</span><p>{{ stageOf(step.key).detail.method }} · 本地规则，费用 {{ formatCost(0) }}</p></div>
-                <div v-if="(stageOf(step.key).detail.keywords || []).length" class="kv">
-                  <span>检索关键词</span><p>{{ (stageOf(step.key).detail.keywords || []).join('、') }}</p>
+                <div class="rewrite-head">
+                  <el-tag v-if="rewriteChanged(stageOf(step.key).detail)" size="small" type="success" effect="plain">已改写</el-tag>
+                  <el-tag v-else size="small" type="info" effect="plain">语义未变</el-tag>
+                  <span class="rewrite-cost">{{ formatCost(stageOf(step.key).cost) }}</span>
+                </div>
+                <div class="rewrite-compare">
+                  <div class="rewrite-col">
+                    <span class="rewrite-label">原问题</span>
+                    <p class="rewrite-text">{{ stageOf(step.key).detail.original }}</p>
+                  </div>
+                  <div class="rewrite-arrow" aria-hidden="true">→</div>
+                  <div class="rewrite-col" :class="{ 'rewrite-col--changed': rewriteChanged(stageOf(step.key).detail) }">
+                    <span class="rewrite-label">改写后</span>
+                    <p class="rewrite-text">{{ stageOf(step.key).detail.rewritten }}</p>
+                  </div>
+                </div>
+                <div class="kv-block"><span class="kv-label">理由</span><p>{{ stageOf(step.key).detail.reason }}</p></div>
+                <div class="kv-block"><span class="kv-label">方式</span><p>{{ stageOf(step.key).detail.method }}</p></div>
+                <div v-if="(stageOf(step.key).detail.keywords || []).length" class="kv-block">
+                  <span class="kv-label">检索关键词</span>
+                  <div class="term-chips">
+                    <span v-for="kw in stageOf(step.key).detail.keywords" :key="kw" class="term-chip">{{ kw }}</span>
+                  </div>
                 </div>
               </template>
 

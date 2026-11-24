@@ -9,6 +9,12 @@ from backend.app.utils.pricing import Usage, cost_llm_for_model
 from backend.app.utils.text import normalize_query_terms
 
 ALIASES = [
+    ("猴哥", "孙悟空"),
+    ("大圣", "孙悟空"),
+    ("大师兄", "孙悟空"),
+    ("二师兄", "猪八戒"),
+    ("三师弟", "沙悟净"),
+    ("沙和尚", "沙悟净"),
     ("悟空", "孙悟空"),
     ("猴王", "美猴王"),
     ("八戒", "猪八戒"),
@@ -18,6 +24,16 @@ ALIASES = [
     ("三藏", "唐僧"),
 ]
 PRONOUN_HINTS = ["他", "她", "它", "这人", "这位", "那个", "这人是谁", "后来叫什么"]
+
+
+def _apply_aliases(text: str) -> tuple[str, list[str]]:
+    notes: list[str] = []
+    out = text
+    for short, full in sorted(ALIASES, key=lambda x: len(x[0]), reverse=True):
+        if short in out:
+            out = out.replace(short, full)
+            notes.append(f"口语「{short}」规范为「{full}」")
+    return out, notes
 
 
 def _history_entities(messages: list[dict[str, Any]]) -> list[str]:
@@ -47,10 +63,11 @@ def rewrite_query(question: str, messages: list[dict[str, Any]] | None = None) -
     text = re.sub(r"[吗呢啊呀？?]+$", "", text).strip() or text
     if text != original:
         notes.append("去掉句末语气词")
-    for short, full in ALIASES:
-        if short in text:
-            text = text.replace(short, full)
-            notes.append(f"简称补为{full}")
+    text, alias_notes = _apply_aliases(text)
+    notes.extend(alias_notes)
+    if "为啥" in text:
+        text = text.replace("为啥", "为什么")
+        notes.append("口语「为啥」规范为「为什么」")
     history_terms = _history_entities(messages or [])
     history_keywords: list[str] = []
     if any(h in original for h in PRONOUN_HINTS) and history_terms:
@@ -87,7 +104,8 @@ def rewrite_query(question: str, messages: list[dict[str, Any]] | None = None) -
     return {
         "original": original,
         "rewritten": text or original,
-        "reason": "；".join(notes) if notes else "问句已经具体，保留原意",
+        "reason": "；".join(notes) if notes else "问句已足够具体，未做语义改写",
+        "changed": (text or original) != original,
         "method": method,
         "llm_model": llm_model if llm_usage else None,
         "llm_usage": None if not llm_usage else {
