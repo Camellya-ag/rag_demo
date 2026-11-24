@@ -61,7 +61,48 @@ button, input, textarea { font-family: inherit; }
 .el-tag { border-radius: 6px; }
 
 /* ---------- 布局骨架 ---------- */
-.app-shell { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.app-shell {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  isolation: isolate;
+}
+.app-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.28;
+  background:
+    radial-gradient(ellipse 70% 55% at 8% 12%, rgba(189, 144, 67, 0.14), transparent 58%),
+    radial-gradient(ellipse 55% 45% at 92% 88%, rgba(176, 58, 46, 0.1), transparent 52%),
+    var(--xiyou-bg-mist, none) center center / cover no-repeat;
+  filter: saturate(0.92) contrast(1.02);
+}
+.app-shell::after {
+  content: '';
+  position: absolute;
+  right: -4%;
+  bottom: -6%;
+  width: min(42vw, 520px);
+  height: min(38vh, 380px);
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.22;
+  background: var(--xiyou-bg-hero, none) right bottom / contain no-repeat;
+  animation: xiyou-drift 48s ease-in-out infinite alternate;
+}
+@keyframes xiyou-drift {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(-12px, -8px) scale(1.02); }
+}
+.app-shell > * { position: relative; z-index: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .app-shell::after { animation: none; }
+}
 
 .app-header {
   height: 68px;

@@ -61,6 +61,15 @@ Desktop.ini
 frontweb/memory/
 frontweb/.workbuddy-ai/
 
+# Backend runtime (may contain traces / generated QA — do not publish blindly)
+backend/data/jobs.json
+backend/data/state.json
+backend/data/qa_pairs.jsonl
+backend/data/qa_pairs.json
+backend/data/traces/
+backend/data/logs/
+backend/data/*.log
+
 # Playwright
 test-results/
 playwright-report/

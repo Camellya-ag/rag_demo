@@ -65,10 +65,19 @@ let seq = 0
 const nextId = () => `m-${++seq}`
 const createRequestId = () => (globalThis.crypto?.randomUUID?.() || `req-${Date.now()}-${Math.random().toString(16).slice(2)}`)
 
+const assetBase = import.meta.env.BASE_URL || './'
+const shellBgStyle = {
+  '--xiyou-bg-mist': `url(${assetBase}bg/xiyou-mist.png)`,
+  '--xiyou-bg-hero': `url(${assetBase}bg/xiyou-hero.png)`
+}
+
 const headerStatus = computed(() => {
   if (!backendOnline.value) return backendError.value || '后端未连接'
   if (source.value.status === 'ready') return `向量库就绪 · ${source.value.chunkCount.toLocaleString('zh-CN')} chunks`
-  if (source.value.status === 'empty') return '知识库待首次正式入库（需估算确认）'
+  if (['empty', 'idle', 'unknown'].includes(source.value.status)) {
+    return '知识库待首次正式入库（需估算确认）'
+  }
+  if (source.value.status === 'running') return '索引构建中…'
   return '索引状态同步中'
 })
 
@@ -337,7 +346,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :style="shellBgStyle">
     <!-- 顶部栏 -->
     <header class="app-header">
       <div class="brand">

@@ -12,7 +12,9 @@ test('双栏页面与后端状态展示', async ({ page }) => {
   await expect(page.locator('.panel-title', { hasText: '问答对话' })).toBeVisible()
   await expect(page.locator('main.workspace .panel')).toHaveCount(2)
   await expect(page.locator('main.workspace .panel.inspect')).toHaveCount(0)
-  await expect(page.locator('.header-right .header-status').first()).toContainText(/等待后端|后端未连接|后端联调|请求失败/)
+  await expect(page.locator('.header-right .header-status').first()).toContainText(
+    /等待后端|后端未连接|后端联调|请求失败|知识库待首次|向量库就绪|索引构建/
+  )
 
   await page.locator('.header-btn', { hasText: '参数配置' }).click()
   await expect(page.getByText('RAG 参数配置')).toBeVisible()
