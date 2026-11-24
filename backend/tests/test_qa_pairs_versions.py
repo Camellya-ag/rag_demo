@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.app.services.qa_pairs import QAPairStore
+from backend.app.ai.rag.qa_pairs import QAPairStore
 
 
 class QaPairVersionTests(unittest.TestCase):
@@ -16,8 +16,8 @@ class QaPairVersionTests(unittest.TestCase):
             legacy.write_text(json.dumps({"id": "1", "chapter": 1, "question": "q"}) + "\n", encoding="utf-8")
             snap_dir = Path(tmp) / "snapshots"
             state = {"active_version": "v20261124193025", "production_version": "v20261124193025"}
-            with patch("backend.app.services.qa_pairs.QA_PAIRS_JSONL", legacy):
-                with patch("backend.app.services.qa_pairs.QA_PAIRS_SNAPSHOT_DIR", snap_dir):
+            with patch("backend.app.ai.rag.qa_pairs.QA_PAIRS_JSONL", legacy):
+                with patch("backend.app.ai.rag.qa_pairs.QA_PAIRS_SNAPSHOT_DIR", snap_dir):
                     path = QAPairStore.resolve_snapshot_path("v20261124193025", state=state)
             self.assertEqual(path, snap_dir / "v20261124193025.jsonl")
 
@@ -30,8 +30,8 @@ class QaPairVersionTests(unittest.TestCase):
             legacy.write_text("{}", encoding="utf-8")
             versioned.write_text(json.dumps({"id": "2", "chapter": 1, "question": "q2"}) + "\n", encoding="utf-8")
             state = {"active_version": "v_new", "production_version": "v_new"}
-            with patch("backend.app.services.qa_pairs.QA_PAIRS_JSONL", legacy):
-                with patch("backend.app.services.qa_pairs.QA_PAIRS_SNAPSHOT_DIR", snap_dir):
+            with patch("backend.app.ai.rag.qa_pairs.QA_PAIRS_JSONL", legacy):
+                with patch("backend.app.ai.rag.qa_pairs.QA_PAIRS_SNAPSHOT_DIR", snap_dir):
                     path = QAPairStore.resolve_snapshot_path("v_new", state=state)
             self.assertEqual(path, versioned)
 
@@ -45,7 +45,7 @@ class QaPairVersionTests(unittest.TestCase):
             "active_version": "v1",
             "query_collection": "c1",
         }
-        with patch("backend.app.services.qa_pairs.store.get_state", return_value=state):
+        with patch("backend.app.ai.rag.qa_pairs.store.get_state", return_value=state):
             with patch.object(store, "_load_records_for_state") as loader:
                 store.sync_with_state()
         loader.assert_not_called()
@@ -57,8 +57,8 @@ class QaPairVersionTests(unittest.TestCase):
             snap_dir = Path(tmp) / "snapshots"
             snap_dir.mkdir(parents=True)
             state = {"active_version": "v1", "production_version": "v1"}
-            with patch("backend.app.services.qa_pairs.QA_PAIRS_JSONL", legacy):
-                with patch("backend.app.services.qa_pairs.QA_PAIRS_SNAPSHOT_DIR", snap_dir):
+            with patch("backend.app.ai.rag.qa_pairs.QA_PAIRS_JSONL", legacy):
+                with patch("backend.app.ai.rag.qa_pairs.QA_PAIRS_SNAPSHOT_DIR", snap_dir):
                     path = QAPairStore.resolve_snapshot_path("v1", state=state)
             self.assertEqual(path, snap_dir / "v1.jsonl")
             self.assertTrue((snap_dir / "v1.jsonl").exists())

@@ -16,8 +16,8 @@ from backend.app.config import (
     QA_PAIRS_SNAPSHOT_DIR,
     QA_PAIR_MAX,
 )
-from backend.app.services.source_loader import source_loader
-from backend.app.services.state_store import store
+from backend.app.ai.rag.source_loader import source_loader
+from backend.app.ai.rag.state_store import store
 from backend.app.utils.text import snippet
 
 _TOKEN_RE = re.compile(r"[\u4e00-\u9fffA-Za-z0-9]+")

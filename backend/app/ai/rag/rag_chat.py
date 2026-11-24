@@ -5,13 +5,13 @@ import uuid
 from typing import Any, Callable
 
 from backend.app.config import CANDIDATE_LIMIT, DEFAULT_TOP_K, LLM_MODEL_DEFAULT
-from backend.app.services.embedding_client import embedding_client
-from backend.app.services.llm_client import llm_client
-from backend.app.services.milvus_repo import milvus_repo
-from backend.app.services.qa_pairs import qa_pair_store
-from backend.app.services.rerank_client import rerank_client
-from backend.app.services.rewrite import rewrite_query
-from backend.app.services.state_store import store
+from backend.app.ai.rag.embedding_client import embedding_client
+from backend.app.ai.rag.llm_client import llm_client
+from backend.app.ai.rag.milvus_repo import milvus_repo
+from backend.app.ai.rag.qa_pairs import qa_pair_store
+from backend.app.ai.rag.rerank_client import rerank_client
+from backend.app.ai.rag.rewrite import rewrite_query
+from backend.app.ai.rag.state_store import store
 from backend.app.utils.pricing import Cost, Usage, cost_embed, cost_llm_for_model, cost_rerank
 from backend.app.utils.text import estimate_tokens, snippet
 

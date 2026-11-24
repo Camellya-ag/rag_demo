@@ -30,10 +30,9 @@
 - `需求.md`：后端联调、混合检索、rerank、费用展示、确认后入库、适量测试 — **已完成**
 - `改ui/需求.md`：页面展示完整 RAG 链路与各步情况 — **已完成**
 
-## 非阻断遗留
+## 目录结构
 
-- 后端未拆 `app/ai/rag`（见 `backend/docs/STRUCTURE.md`）
-- 多历史版本 QA 批量快照脚本（production 已快照 + 自动回填）
+- RAG 代码位于 `backend/app/ai/rag/`（已对齐基项目 `app/ai/rag` 分层；`services/` 仅兼容导出）。
 
 ## 运行
 
@@ -47,6 +46,6 @@
 
 ## 参考位置
 
-- 后端：`backend/app/`；结构说明 `backend/docs/STRUCTURE.md`
+- 后端：`backend/app/ai/rag/`；结构说明 `backend/docs/STRUCTURE.md`
 - 前端：`frontweb/src/`；契约 `frontweb/src/api/contract.md`
 - 接口说明：`wmk/需求112401-完成后端与联调/接口契约.md`

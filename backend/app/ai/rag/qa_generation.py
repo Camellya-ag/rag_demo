@@ -18,7 +18,7 @@ from backend.app.config import (
     QA_QUESTIONS_PER_CHAPTER,
     SOURCE_FILE,
 )
-from backend.app.services.source_loader import SourceLoader, source_loader
+from backend.app.ai.rag.source_loader import SourceLoader, source_loader
 from backend.app.utils.pricing import Cost, Usage, cost_unknown, yuan_by_tokens
 from backend.app.utils.text import estimate_tokens, snippet
 

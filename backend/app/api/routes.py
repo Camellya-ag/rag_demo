@@ -18,12 +18,12 @@ from backend.app.config import (
     MILVUS_URI,
     pricing_snapshot,
 )
-from backend.app.services.indexing import indexing_service
-from backend.app.services.milvus_repo import milvus_repo
-from backend.app.services.qa_pairs import qa_pair_store
-from backend.app.services.rag_chat import rag_chat_service
-from backend.app.services.source_loader import source_loader
-from backend.app.services.state_store import store
+from backend.app.ai.rag.indexing import indexing_service
+from backend.app.ai.rag.milvus_repo import milvus_repo
+from backend.app.ai.rag.qa_pairs import qa_pair_store
+from backend.app.ai.rag.rag_chat import rag_chat_service
+from backend.app.ai.rag.source_loader import source_loader
+from backend.app.ai.rag.state_store import store
 
 router = APIRouter(prefix=API_PREFIX)
 

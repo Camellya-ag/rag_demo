@@ -8,8 +8,8 @@ from pathlib import Path
 from openai import OpenAI
 
 from backend.app.config import LLM_MODEL_DEFAULT, QA_PAIRS_JSONL, QA_QUESTIONS_PER_CHAPTER, SOURCE_FILE
-from backend.app.services.qa_pairs import EvidenceAnchor, QaPairRecord
-from backend.app.services.source_loader import source_loader
+from backend.app.ai.rag.qa_pairs import EvidenceAnchor, QaPairRecord
+from backend.app.ai.rag.source_loader import source_loader
 from backend.app.utils.pricing import Cost, Usage, cost_llm
 from backend.app.utils.text import estimate_tokens, snippet
 

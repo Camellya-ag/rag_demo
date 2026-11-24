@@ -6,7 +6,7 @@ import threading
 import unittest
 from pathlib import Path
 
-from backend.app.services.qa_generation import (
+from backend.app.ai.rag.qa_generation import (
     EvidenceAnchor,
     GenerationScope,
     GenerationScopeKind,
@@ -20,7 +20,7 @@ from backend.app.services.qa_generation import (
     map_record_to_chunks,
     verify_record,
 )
-from backend.app.services.source_loader import SourceLoader
+from backend.app.ai.rag.source_loader import SourceLoader
 from backend.app.utils.pricing import Usage
 
 SAMPLE_TEXT = """第 一 回 灵根育孕源流出 心性修持大道生

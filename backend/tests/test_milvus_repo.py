@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pymilvus import MilvusClient
 
 from backend.app.config import EMBEDDING_DIM, MILVUS_URI
-from backend.app.services.milvus_repo import MILVUS_DATABASE, MilvusRepo
+from backend.app.ai.rag.milvus_repo import MILVUS_DATABASE, MilvusRepo
 
 
 @dataclass

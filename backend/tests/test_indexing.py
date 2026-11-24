@@ -5,8 +5,8 @@ import unittest
 from unittest.mock import patch
 
 from backend.app.config import SOURCE_FILE
-from backend.app.services.indexing import IndexingService
-from backend.app.services.qa_generation import GenerationResult
+from backend.app.ai.rag.indexing import IndexingService
+from backend.app.ai.rag.qa_generation import GenerationResult
 from backend.app.utils.pricing import Cost
 
 
@@ -25,8 +25,8 @@ class IndexingServiceTests(unittest.TestCase):
                 "cost": Cost(amount=1.23, usage_known=False),
             },
         )()
-        with patch("backend.app.services.indexing.source_loader.chunk", return_value=[fake_chunk] * 3):
-            with patch("backend.app.services.indexing.qa_generation_service.estimate", return_value=qa_estimate):
+        with patch("backend.app.ai.rag.indexing.source_loader.chunk", return_value=[fake_chunk] * 3):
+            with patch("backend.app.ai.rag.indexing.qa_generation_service.estimate", return_value=qa_estimate):
                 payload = self.service.estimate("initial")
         self.assertEqual(len(payload["stages"]), 3)
         keys = {stage["key"] for stage in payload["stages"]}
@@ -49,11 +49,11 @@ class IndexingServiceTests(unittest.TestCase):
         # 持久化一份快照供人工核对（测试内不写文件到 repo 根，仅断言）
         _ = json.dumps({"chunk_count": payload["chunk_count"], "qa_pair_count": payload["qa_pair_count"]})
 
-    @patch("backend.app.services.indexing.store")
-    @patch("backend.app.services.indexing.qa_generation_service")
-    @patch("backend.app.services.indexing.embedding_client")
-    @patch("backend.app.services.indexing.milvus_repo")
-    @patch("backend.app.services.indexing.qa_pair_store")
+    @patch("backend.app.ai.rag.indexing.store")
+    @patch("backend.app.ai.rag.indexing.qa_generation_service")
+    @patch("backend.app.ai.rag.indexing.embedding_client")
+    @patch("backend.app.ai.rag.indexing.milvus_repo")
+    @patch("backend.app.ai.rag.indexing.qa_pair_store")
     def test_run_job_rollback_on_failure(self, qa_store, milvus, embedding, qa_gen, state_store) -> None:
         fake_chunk = type(
             "Chunk",
@@ -87,13 +87,13 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertEqual(job_args[0][0], "job_x")
         self.assertEqual(job_args[1]["status"], "failed")
 
-    @patch("backend.app.services.indexing.store")
-    @patch("backend.app.services.indexing.qa_generation_service")
-    @patch("backend.app.services.indexing.embedding_client")
-    @patch("backend.app.services.indexing.milvus_repo")
-    @patch("backend.app.services.indexing.qa_pair_store")
+    @patch("backend.app.ai.rag.indexing.store")
+    @patch("backend.app.ai.rag.indexing.qa_generation_service")
+    @patch("backend.app.ai.rag.indexing.embedding_client")
+    @patch("backend.app.ai.rag.indexing.milvus_repo")
+    @patch("backend.app.ai.rag.indexing.qa_pair_store")
     def test_run_job_publishes_qa_after_success(self, qa_store, milvus, embedding, qa_gen, state_store) -> None:
-        from backend.app.services.qa_generation import QaGenerationRecord, EvidenceAnchor
+        from backend.app.ai.rag.qa_generation import QaGenerationRecord, EvidenceAnchor
 
         fake_chunk = type(
             "Chunk",

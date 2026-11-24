@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from backend.app.services.source_loader import SourceLoader
+from backend.app.ai.rag.source_loader import SourceLoader
 from backend.app.utils.text import chunk_region_spans
 
 SOURCE_FILE = Path(__file__).resolve().parents[2] / "wmk" / "docs" / "西游记.txt"

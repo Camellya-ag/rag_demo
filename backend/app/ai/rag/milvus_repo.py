@@ -8,7 +8,7 @@ from pymilvus import AnnSearchRequest, DataType, Function, FunctionType, MilvusC
 from backend.app.config import EMBEDDING_DIM, MILVUS_URI, RRF_K
 
 if TYPE_CHECKING:
-    from backend.app.services.source_loader import SourceChunk
+    from backend.app.ai.rag.source_loader import SourceChunk
 
 MILVUS_DATABASE = "rag_demo"
 

@@ -21,4 +21,5 @@ D:\document\rag\rag_examples\.venv\Scripts\python.exe -m uvicorn backend.app.mai
 - 停止流式：`POST /api/chat/stop` 后，已发生阶段的真实费用会保留在 trace 中，不会清零。
 - 问答对：`backend/data/qa_pairs.jsonl` 为正式持久化；命中后映射原文 chunk 参与 RRF / rerank，生成答案不作证据。
 
-详见：`wmk/需求112401-完成后端与联调/接口契约.md` 与 `backend/docs/sse_trace.md`。
+详见：`wmk/需求112401-完成后端与联调/接口契约.md` 与 `backend/docs/sse_trace.md`。  
+RAG 实现目录：`backend/app/ai/rag/`（见 `backend/docs/STRUCTURE.md`）。

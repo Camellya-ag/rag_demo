@@ -5,12 +5,12 @@ import uuid
 from datetime import datetime, timezone
 
 from backend.app.config import ALLOW_DEV_SAMPLE_INDEX, CHUNK_OVERLAP, CHUNK_SIZE, SAMPLE_CHAPTER_LIMIT, SAMPLE_CHUNK_LIMIT
-from backend.app.services.embedding_client import embedding_client
-from backend.app.services.milvus_repo import milvus_repo
-from backend.app.services.qa_generation import GenerationScope, GenerationScopeKind, qa_generation_service
-from backend.app.services.qa_pairs import qa_pair_store
-from backend.app.services.source_loader import source_loader
-from backend.app.services.state_store import store
+from backend.app.ai.rag.embedding_client import embedding_client
+from backend.app.ai.rag.milvus_repo import milvus_repo
+from backend.app.ai.rag.qa_generation import GenerationScope, GenerationScopeKind, qa_generation_service
+from backend.app.ai.rag.qa_pairs import qa_pair_store
+from backend.app.ai.rag.source_loader import source_loader
+from backend.app.ai.rag.state_store import store
 from backend.app.utils.pricing import Cost, cost_embed, cost_unknown
 
 PRODUCTION_MODES = {"initial", "rebuild"}

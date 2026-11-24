@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 from backend.app.config import LLM_MODEL_DEFAULT
-from backend.app.services.llm_client import llm_client
+from backend.app.ai.rag.llm_client import llm_client
 from backend.app.utils.pricing import Usage, cost_llm_for_model
 from backend.app.utils.text import normalize_query_terms
 
