@@ -47,10 +47,10 @@ SAMPLE_CHAPTER_LIMIT = int(os.getenv("XIYOU_SAMPLE_CHAPTERS", "3"))
 SAMPLE_CHUNK_LIMIT = int(os.getenv("XIYOU_SAMPLE_CHUNKS", "48"))
 
 PRICING_REGION = os.getenv("XIYOU_PRICING_REGION", "cn-beijing")
-PRICING_UPDATED_AT = os.getenv("XIYOU_PRICING_UPDATED_AT", "2026-03-24")
+PRICING_UPDATED_AT = os.getenv("XIYOU_PRICING_UPDATED_AT", "2026-11-24")
 PRICING_SOURCE = os.getenv(
     "XIYOU_PRICING_SOURCE",
-    "DashScope 模型服务-中国大陆（北京）模型价格页",
+    "help.aliyun.com/zh/model-studio/model-pricing（华北2北京，≤128K 档）",
 )
 
 
@@ -73,12 +73,13 @@ PRICING = {
     "updated_at": PRICING_UPDATED_AT,
     "source": PRICING_SOURCE,
     "embedding_model": EMBEDDING_MODEL,
+    # 元/千 tokens：北京原价 0.15/1.5、0.5、0.5 每百万 tokens → 见 backend/docs/PRICING.md
     "embedding_per_1k": _rate("PRICE_EMBED_PER_1K", "0.0005") or 0.0005,
     "rerank_model": RERANK_MODEL,
-    "rerank_per_1k": _rate("PRICE_RERANK_PER_1K", "0.0008") or 0.0008,
+    "rerank_per_1k": _rate("PRICE_RERANK_PER_1K", "0.0005") or 0.0005,
     "default_llm_model": LLM_MODEL_DEFAULT,
-    "llm_input_per_1k": _rate("PRICE_LLM_QWEN_FLASH_IN_PER_1K", "0.00005") or 0.00005,
-    "llm_output_per_1k": _rate("PRICE_LLM_QWEN_FLASH_OUT_PER_1K", "0.0004") or 0.0004,
+    "llm_input_per_1k": _rate("PRICE_LLM_QWEN_FLASH_IN_PER_1K", "0.00015") or 0.00015,
+    "llm_output_per_1k": _rate("PRICE_LLM_QWEN_FLASH_OUT_PER_1K", "0.0015") or 0.0015,
 }
 
 
@@ -127,7 +128,7 @@ CORS_ORIGINS = [
 ]
 
 QA_PAIRS_JSONL = ROOT / "backend" / "data" / "qa_pairs.jsonl"
-QA_PAIRS_FIXTURE = ROOT / "qa_pilot" / "fixtures" / "pilot_qa.sample.jsonl"
+QA_PAIRS_FIXTURE = ROOT / "backend" / "data" / "fixtures" / "qa_pairs.sample.jsonl"
 QA_PAIRS_ENABLED = os.getenv("XIYOU_QA_PAIRS_ENABLED", "true").lower() in {"1", "true", "yes"}
 QA_PAIR_MAX = int(os.getenv("XIYOU_QA_PAIR_MAX", "512"))
 QA_QUESTIONS_PER_CHAPTER = int(os.getenv("XIYOU_QA_QUESTIONS_PER_CHAPTER", "3"))

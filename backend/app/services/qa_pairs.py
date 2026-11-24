@@ -123,6 +123,14 @@ class QAPairStore:
         else:
             scope = "unindexed"
             status = "empty"
+        if scope == "production":
+            note = "全书正式问答对，命中映射原文参与召回"
+        elif scope == "dev_sample":
+            note = "开发样本索引，未替换生产 collection"
+        elif status == "fixture_only":
+            note = "无活动索引时本地 sample jsonl，不代表全书入库"
+        else:
+            note = "问答对未加载或索引未就绪"
         return {
             "enabled": self.enabled,
             "loaded": len(self._records),
@@ -137,7 +145,7 @@ class QAPairStore:
             "sample_version": sample_version,
             "query_collection": query_collection,
             "active_collection": active_collection,
-            "note": "无活动索引时，jsonl 中的问答对仅作本地辅助召回，不代表全书正式入库完成",
+            "note": note,
         }
 
     @staticmethod

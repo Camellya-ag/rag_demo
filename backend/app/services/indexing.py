@@ -119,6 +119,7 @@ class IndexingService:
             "currency": "CNY",
             "warning": "",
             "note": "首次正式入库与重建均覆盖全文切片与问答对生成，需先 estimate 再 confirmed=true。",
+            "qa_pair_note": "问答对估算为生成上限；校验/映射失败会剔除，实际条数通常低于 qa_pair_count。",
             "stages": [
                 self._stage_payload("chunk_embed", embed_cost, f"{chunk_token_est} tokens"),
                 self._stage_payload("qa_generate", qa_cost, f"约 {qa_pair_count} 条"),
