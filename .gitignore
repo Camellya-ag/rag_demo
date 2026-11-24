@@ -66,6 +66,7 @@ backend/data/jobs.json
 backend/data/state.json
 backend/data/qa_pairs.jsonl
 backend/data/qa_pairs.json
+backend/data/qa_snapshots/
 backend/data/traces/
 backend/data/logs/
 backend/data/*.log

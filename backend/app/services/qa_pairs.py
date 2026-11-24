@@ -114,8 +114,25 @@ class QAPairStore:
             if v
         }
         if version in bound_versions and QA_PAIRS_JSONL.exists():
+            cls._materialize_legacy_snapshot(version)
+            if versioned.exists():
+                return versioned
             return QA_PAIRS_JSONL
         return None
+
+    @classmethod
+    def _materialize_legacy_snapshot(cls, version: str) -> None:
+        """将历史正式 qa_pairs.jsonl 回填为版本快照，避免仅依赖共享文件。"""
+        if not version or not QA_PAIRS_JSONL.exists():
+            return
+        QA_PAIRS_SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+        target = QA_PAIRS_SNAPSHOT_DIR / f"{version}.jsonl"
+        if target.exists():
+            return
+        try:
+            shutil.copyfile(QA_PAIRS_JSONL, target)
+        except OSError:
+            pass
 
     def _load_records_for_state(self, state: dict[str, Any]) -> None:
         self._records = []

@@ -19,7 +19,9 @@
 ## 核心功能说明
 
 - 查询前 `qa_pair_store.sync_with_state()`，按 `query_mode` 与版本读取 `backend/data/qa_snapshots/{version}.jsonl`；无快照时兼容现有 `qa_pairs.jsonl`（当前 production `v20261124193025`）。
+- 若仅有历史 `qa_pairs.jsonl`、无对应版本快照，启动/查询时会自动回填 `{version}.jsonl`（不提交到 Git）。
 - 前端全链路复制日志：`traceLog.js` 展示稠密原问/改写双路、真实 tokens，密钥字段脱敏。
+- 西游主题图已接入 `frontweb/public/bg/`（`xiyou-mist.png`、`xiyou-hero.png`），支持 `prefers-reduced-motion`。
 
 ## 运行
 
