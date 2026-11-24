@@ -58,6 +58,7 @@ Thumbs.db
 Desktop.ini
 
 # Project-specific transient content
+wmk/
 frontweb/memory/
 frontweb/.workbuddy-ai/
 
@@ -70,6 +71,7 @@ backend/data/qa_snapshots/
 backend/data/traces/
 backend/data/logs/
 backend/data/*.log
+backend/data/eval/results/*.json
 
 # Playwright
 test-results/
