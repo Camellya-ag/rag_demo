@@ -199,8 +199,35 @@ export function buildTraceLog(context = {}) {
   return lines.join('\n')
 }
 
+/** 原始全链路日志：完整 trace JSON（密钥字段脱敏），供复制与排查。 */
+export function buildRawTraceLog(context = {}) {
+  const trace = context.trace || {}
+  const payload = {
+    type: 'xiyou_rag_trace_raw',
+    exportedAt: new Date().toISOString(),
+    status: context.status || trace.status || 'unknown',
+    error: context.error || null,
+    query: trace.query || null,
+    meta: redactSecrets(context.meta || {}),
+    trace: redactSecrets({
+      query: trace.query,
+      status: trace.status,
+      startedAt: trace.startedAt,
+      finishedAt: trace.finishedAt,
+      hits: trace.hits,
+      stages: trace.stages,
+      costs: trace.costs,
+      channels: trace.channels,
+      errors: trace.errors,
+      stopped: trace.stopped
+    }),
+    answerText: context.answerText || null
+  }
+  return JSON.stringify(payload, null, 2)
+}
+
 export async function copyTraceLog(context = {}) {
-  const text = buildTraceLog(context)
+  const text = buildRawTraceLog(context)
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text)

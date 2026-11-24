@@ -87,6 +87,7 @@ test.describe('全量页面验收', () => {
     await page.locator('.message-row.assistant .trace-btn', { hasText: '查看 RAG 全链路' }).last().click()
     const dialog = page.locator('.rag-trace-dialog')
     await expect(dialog.getByText('本次回答 · RAG 全链路')).toBeVisible()
+    await page.getByRole('tab', { name: '步骤详情' }).click()
 
     for (const label of PIPELINE_LABELS) {
       await expect(dialog.locator('.trace-name', { hasText: label })).toBeVisible()
