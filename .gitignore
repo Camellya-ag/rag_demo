@@ -60,3 +60,9 @@ Desktop.ini
 # Project-specific transient content
 frontweb/memory/
 frontweb/.workbuddy-ai/
+
+# Playwright
+test-results/
+playwright-report/
+frontweb/test-results/
+frontweb/playwright-report/
