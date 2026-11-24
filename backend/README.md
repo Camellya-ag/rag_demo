@@ -2,6 +2,18 @@
 
 FastAPI 服务，默认监听 `http://127.0.0.1:8010`，接口前缀 `/api`，与 `frontweb/src/api/contract.md` 对齐。
 
+## 重启（改代码后加载新逻辑）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File backend\restart.ps1
+```
+
+前台开发（`--reload`，勿与 restart 多实例并行）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File backend\run.ps1 -Reload
+```
+
 ## 启动
 
 ```powershell
@@ -21,5 +33,7 @@ D:\document\rag\rag_examples\.venv\Scripts\python.exe -m uvicorn backend.app.mai
 - 停止流式：`POST /api/chat/stop` 后，已发生阶段的真实费用会保留在 trace 中，不会清零。
 - 问答对：`backend/data/qa_pairs.jsonl` 为正式持久化；命中后映射原文 chunk 参与 RRF / rerank，生成答案不作证据。
 
-详见：`wmk/需求112401-完成后端与联调/接口契约.md` 与 `backend/docs/sse_trace.md`。  
+接口契约（现行）：`backend/docs/API_CONTRACT.md`（自动校验：`backend/tests/test_api_contract.py`）。  
+效果评测：`backend/docs/EVALUATION.md`（`backend/scripts/run_eval.py`）。  
+历史文档：`wmk/需求112401-完成后端与联调/接口契约.md`（含旧 `/api/v1` 路径，仅作对照）。  
 RAG 实现目录：`backend/app/ai/rag/`（见 `backend/docs/STRUCTURE.md`）。

@@ -1,0 +1,27 @@
+{
+  "version": "1.0.0",
+  "dataset": "xiyou-rag-smoke",
+  "description": "西游问典固定评测集，用于检索命中、引用标注与回归对比。",
+  "questions": [
+    {"id": "q01", "question": "孙悟空是怎么出生的？", "expected_chapters": [1], "must_keywords": ["石卵", "仙石"], "tags": ["开场"]},
+    {"id": "q02", "question": "水帘洞洞门上刻着什么字？", "expected_chapters": [1], "must_keywords": ["花果山福地", "水帘洞洞天"], "tags": ["开场"]},
+    {"id": "q03", "question": "美猴王为什么决定下山学道？", "expected_chapters": [1], "must_keywords": ["阎王"], "tags": ["开场"]},
+    {"id": "q04", "question": "菩提祖师的洞府在什么地方？", "expected_chapters": [2], "must_keywords": ["灵台方寸山", "斜月三星洞"], "tags": ["拜师"]},
+    {"id": "q05", "question": "孙悟空从菩提祖师那里学了哪些本领？", "expected_chapters": [2], "must_keywords": ["七十二变"], "tags": ["拜师"]},
+    {"id": "q06", "question": "孙悟空被玉帝封了什么官职？", "expected_chapters": [4], "must_keywords": ["弼马温"], "tags": ["天庭"]},
+    {"id": "q07", "question": "孙悟空为什么大闹天宫？", "expected_chapters": [4, 5], "must_keywords": ["蟠桃"], "tags": ["天庭"]},
+    {"id": "q08", "question": "如来佛祖如何压住孙悟空？", "expected_chapters": [7], "must_keywords": ["五行山", "如来"], "tags": ["被压"]},
+    {"id": "q09", "question": "唐僧为什么要去西天取经？", "expected_chapters": [8, 12], "must_keywords": ["西天", "取经"], "tags": ["取经"]},
+    {"id": "q10", "question": "白龙马原本是什么身份？", "expected_chapters": [8], "must_keywords": ["龙王"], "tags": ["取经"]},
+    {"id": "q11", "question": "猪八戒在凡间曾做过什么天官？", "expected_chapters": [19], "must_keywords": ["天蓬元帅"], "tags": ["徒弟"]},
+    {"id": "q12", "question": "沙僧被贬下凡后在哪里受苦？", "expected_chapters": [22], "must_keywords": ["流沙河"], "tags": ["徒弟"]},
+    {"id": "q13", "question": "孙悟空为什么被唐僧第一次赶走？", "expected_chapters": [27], "must_keywords": ["白骨"], "tags": ["磨难"]},
+    {"id": "q14", "question": "火焰山的火焰最初是怎么来的？", "expected_chapters": [59], "must_keywords": ["八卦炉"], "tags": ["火焰山"]},
+    {"id": "q15", "question": "孙悟空借芭蕉扇经历了哪些波折？", "expected_chapters": [59, 60, 61], "must_keywords": ["铁扇公主"], "tags": ["火焰山"]},
+    {"id": "q16", "question": "真假美猴王最后被谁分辨出来？", "expected_chapters": [58], "must_keywords": ["如来"], "tags": ["真假"]},
+    {"id": "q17", "question": "唐僧在女儿国发生了什么？", "expected_chapters": [54], "must_keywords": ["女儿国"], "tags": ["女儿国"]},
+    {"id": "q18", "question": "通天河老龟为什么把唐僧师徒翻入水中？", "expected_chapters": [99], "must_keywords": ["没问寿命"], "tags": ["结尾前"]},
+    {"id": "q19", "question": "师徒取经成功后，孙悟空被封了什么？", "expected_chapters": [100], "must_keywords": ["斗战胜佛"], "tags": ["结局"]},
+    {"id": "q20", "question": "唐僧和金蝉子有什么关系？", "expected_chapters": [100], "must_keywords": ["金蝉"], "tags": ["结局"]}
+  ]
+}

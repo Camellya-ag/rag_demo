@@ -28,6 +28,10 @@ from backend.app.ai.rag.state_store import store
 router = APIRouter(prefix=API_PREFIX)
 
 
+def _qa_pair_count(state: dict[str, Any], qa_status: dict[str, Any]) -> int:
+    return int(qa_status.get("verified") or qa_status.get("loaded") or state.get("qa_pair_count") or 0)
+
+
 class EstimateBody(BaseModel):
     mode: str = "rebuild"
 
@@ -50,6 +54,7 @@ class StopBody(BaseModel):
 
 @router.get("/health")
 def health():
+    qa_pair_store.sync_with_state()
     state = store.get_state()
     return {
         "ok": True,
@@ -78,7 +83,7 @@ def settings_defaults():
             "chunk_overlap": CHUNK_OVERLAP,
             "overlap_unit": "char",
             "streaming": True,
-            "system_prompt": "你是《西游记》阅读助手。请严格依据检索到的原文片段回答问题，回答末尾用 [n] 标注引用来源。若片段不足以回答，请如实说明。",
+            "system_prompt": "你是《西游记》阅读助手。请严格依据检索到的原文片段回答问题，回答末尾用 [1]、[2] 标注引用来源。若片段不足以回答，请如实说明。",
         },
         "models": {
             "llm_default": LLM_MODEL_DEFAULT,
@@ -91,9 +96,11 @@ def settings_defaults():
 
 @router.get("/knowledge/source")
 def knowledge_source():
+    qa_pair_store.sync_with_state()
     meta = source_loader.meta()
     state = store.get_state()
     qa_status = qa_pair_store.status()
+    qa_count = _qa_pair_count(state, qa_status)
     return {
         "source": {
             "name": meta.file_name,
@@ -114,7 +121,7 @@ def knowledge_source():
             "index_status": state.get("status", "idle"),
             "active_version": state.get("active_version"),
             "building_version": state.get("sample_version") if state.get("status") == "running" else None,
-            "qa_pair_count": int(state.get("qa_pair_count") or qa_status.get("verified") or qa_status.get("loaded") or 0),
+            "qa_pair_count": qa_count,
             "qa_pairs": qa_status,
         }
     }

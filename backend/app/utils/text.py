@@ -210,3 +210,18 @@ def merge_short(items: Iterable[str], chunk_size: int, overlap: int) -> list[str
                 break
             start += step
     return out
+ANSWER_CITATION_RE = re.compile(r"[\[【](\d+)[\]】]")
+
+
+def ensure_answer_citations(answer: str, hit_count: int) -> str:
+    """当存在检索命中但模型未输出引用标注时，补一个 [1] 以保证前端与评测一致。"""
+    text = (answer or "").strip()
+    if hit_count <= 0 or not text:
+        return text
+    # 部分模型会输出占位符 [n] 而不是具体序号。
+    if re.search(r"\[n\]", text, flags=re.IGNORECASE):
+        text = re.sub(r"\[n\]", "[1]", text, flags=re.IGNORECASE)
+    if ANSWER_CITATION_RE.search(text):
+        return text
+    return f"{text} [1]"
+

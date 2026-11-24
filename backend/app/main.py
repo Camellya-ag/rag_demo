@@ -12,6 +12,7 @@ from backend.app.core.logging.logging_config import setup_logging
 from backend.app.core.middleware.access_log import register_access_log_middleware
 from backend.app.core.middleware.request_context import register_request_context_middleware
 from backend.app.router_registry import register_routers
+from backend.app.ai.rag.qa_pairs import qa_pair_store
 
 setup_logging()
 logger = logging.getLogger("backend.app")
@@ -20,6 +21,7 @@ logger = logging.getLogger("backend.app")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("西游问典 RAG API 启动")
+    qa_pair_store.sync_with_state()
     yield
     logger.info("西游问典 RAG API 关闭")
 
