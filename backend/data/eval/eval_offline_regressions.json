@@ -1,0 +1,111 @@
+{
+  "version": "1.1.0",
+  "dataset": "xiyou-rag-offline-regressions",
+  "description": "离线回归样例：无答案、引用越界、多轮与别名，不能与历史 20 题全量基线直接比较。",
+  "questions": [
+    {
+      "id": "off_no_answer",
+      "question": "未配置检索证据时是否应拒绝作答",
+      "expected_chapters": [],
+      "must_keywords": [],
+      "tags": ["no_answer"]
+    },
+    {
+      "id": "off_out_of_range",
+      "question": "测试引用越界",
+      "expected_chapters": [1],
+      "must_keywords": ["仙石"],
+      "tags": ["citation"]
+    },
+    {
+      "id": "off_followup",
+      "question": "他后来被封了什么",
+      "expected_chapters": [1, 2],
+      "must_keywords": ["官"],
+      "tags": ["followup"]
+    },
+    {
+      "id": "off_alias",
+      "question": "猴哥为啥压在山下",
+      "expected_chapters": [7],
+      "must_keywords": ["五行山"],
+      "tags": ["alias"]
+    }
+  ],
+  "cases": [
+    {
+      "id": "off_no_answer",
+      "question": "未配置检索证据时是否应拒绝作答",
+      "inputs": {
+        "hits": [],
+        "answer": "",
+        "error": null
+      },
+      "expected_scores": {
+        "retrieval_ok": null,
+        "retrieval_scored": false,
+        "citation_ok": false,
+        "has_answer": false
+      }
+    },
+    {
+      "id": "off_out_of_range",
+      "question": "测试引用越界",
+      "expected_chapters": [1],
+      "must_keywords": ["仙石"],
+      "inputs": {
+        "hits": [
+          {"chapter": 1, "chunk": {"text": "山顶仙石迸裂"}},
+          {"chapter": 2, "chunk": {"text": "石猴出世"}}
+        ],
+        "answer": "引用越界[99]",
+        "error": null
+      },
+      "expected_scores": {
+        "retrieval_ok": true,
+        "citation_ok": false,
+        "citation_in_range": false
+      }
+    },
+    {
+      "id": "off_followup",
+      "question": "他后来被封了什么",
+      "inputs": {
+        "llm_rewrite": "猪八戒后来被封了什么",
+        "messages": [
+          {"role": "user", "content": "猪八戒在天庭当过什么官？"}
+        ]
+      },
+      "expected_rewrite": {
+        "contains": ["猪八戒"],
+        "ambiguous_reference": false
+      }
+    },
+    {
+      "id": "off_alias",
+      "question": "猴哥为啥压在山下",
+      "inputs": {
+        "messages": []
+      },
+      "expected_rewrite": {
+        "contains": ["孙悟空", "为什么"],
+        "excludes": ["猴哥"],
+        "changed": true
+      }
+    },
+    {
+      "id": "off_multi_entity_ambiguous",
+      "question": "他原来叫什么",
+      "inputs": {
+        "messages": [
+          {"role": "user", "content": "猪八戒和孙悟空是什么关系？"},
+          {"role": "assistant", "content": "他们都是唐僧的徒弟。"}
+        ]
+      },
+      "expected_rewrite": {
+        "equals": "他原来叫什么",
+        "ambiguous_reference": true
+      }
+    }
+  ]
+}

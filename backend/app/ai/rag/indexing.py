@@ -144,7 +144,7 @@ class IndexingService:
         mode = self._validate_mode(mode)
         if mode in PRODUCTION_MODES and not confirmed:
             raise ValueError("正式入库需要先 estimate 并由用户 confirmed=true 确认")
-        version = datetime.now().strftime("v%Y%m%d%H%M%S")
+        version = f"{datetime.now().strftime('v%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}"
         collection = f"xiyou_rag_{version}"
         estimate = self.estimate(mode)
         job = store.create_job(
@@ -162,12 +162,14 @@ class IndexingService:
         return {"job": job}
 
     def _run_job(self, job_id: str, mode: str, collection: str, version: str) -> None:
-        previous_state = store.get_state()
+        previous_state = None
         inserted = 0
         cost_so_far: float | None = 0.0
         qa_pair_count = 0
-        try:
-            with self._worker_lock:
+        with self._worker_lock:
+            previous_state = store.get_state()
+            try:
+                store.update_state({"status": "running", "progress": 0, "last_job_id": job_id, "message": "索引任务执行中"})
                 store.update_job(job_id, status="running", started_at=_now(), message="正在切分原文", current_stage="chunking")
                 chunks = self._select_chunks(mode)
                 total = len(chunks)
@@ -252,27 +254,28 @@ class IndexingService:
                     cost_so_far=cost_so_far,
                     current_stage="done",
                 )
-        except Exception as exc:
-            if collection and inserted:
-                try:
-                    milvus_repo.drop_collection(collection)
-                    milvus_repo.drop_collection(qa_collection_for_chunk_collection(collection))
-                except Exception:
-                    pass
-            store.update_state({
-                "status": previous_state.get("status", "ready" if previous_state.get("active_collection") else "idle"),
-                "message": f"索引失败，已保留旧版本：{exc}",
-                "active_collection": previous_state.get("active_collection"),
-                "active_version": previous_state.get("active_version"),
-                "production_collection": previous_state.get("production_collection"),
-                "production_version": previous_state.get("production_version"),
-                "query_collection": previous_state.get("query_collection"),
-                "query_mode": previous_state.get("query_mode", "none"),
-                "chunk_count": previous_state.get("chunk_count", 0),
-                "indexed_at": previous_state.get("indexed_at"),
-                "progress": previous_state.get("progress", 0),
-            })
-            store.update_job(job_id, status="failed", error=str(exc), message="索引失败，已保留旧索引", finished_at=_now(), current_stage="failed")
+            except Exception as exc:
+                if collection and inserted:
+                    try:
+                        milvus_repo.drop_collection(collection)
+                        milvus_repo.drop_collection(qa_collection_for_chunk_collection(collection))
+                    except Exception:
+                        pass
+                if previous_state:
+                    store.update_state({
+                        "status": previous_state.get("status", "ready" if previous_state.get("active_collection") else "idle"),
+                        "message": f"索引失败，已保留旧版本：{exc}",
+                        "active_collection": previous_state.get("active_collection"),
+                        "active_version": previous_state.get("active_version"),
+                        "production_collection": previous_state.get("production_collection"),
+                        "production_version": previous_state.get("production_version"),
+                        "query_collection": previous_state.get("query_collection"),
+                        "query_mode": previous_state.get("query_mode", "none"),
+                        "chunk_count": previous_state.get("chunk_count", 0),
+                        "indexed_at": previous_state.get("indexed_at"),
+                        "progress": previous_state.get("progress", 0),
+                    })
+                store.update_job(job_id, status="failed", error=str(exc), message="索引失败，已保留旧索引", finished_at=_now(), current_stage="failed")
 
 
 indexing_service = IndexingService()

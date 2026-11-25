@@ -9,6 +9,7 @@ from typing import Any
 from backend.app.config import ROOT
 
 DEFAULT_EVAL_PATH = ROOT / "backend" / "data" / "eval" / "eval_questions.json"
+OFFLINE_REGRESSIONS_PATH = ROOT / "backend" / "data" / "eval" / "eval_offline_regressions.json"
 CITATION_RE = re.compile(r"[\[【](\d+)[\]】]")
 
 DEFAULT_THRESHOLDS = {
@@ -47,14 +48,33 @@ def load_eval_questions(path: Path | None = None) -> list[EvalQuestion]:
     return [EvalQuestion.from_dict(row) for row in rows if row.get("question")]
 
 
-def _text_blob(hits: list[dict[str, Any]], answer: str) -> str:
-    parts = [answer or ""]
+def load_offline_regressions(path: Path | None = None) -> list[dict[str, Any]]:
+    target = path or OFFLINE_REGRESSIONS_PATH
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    rows = payload.get("cases") if isinstance(payload, dict) else []
+    if not isinstance(rows, list):
+        raise ValueError("离线回归集格式错误：需要 cases 数组")
+    return rows
+
+
+def _retrieval_text(hits: list[dict[str, Any]]) -> str:
+    parts: list[str] = []
     for hit in hits or []:
         chunk = hit.get("chunk") if isinstance(hit.get("chunk"), dict) else {}
         parts.append(str(hit.get("text") or ""))
         parts.append(str(chunk.get("text") or ""))
         parts.append(str(chunk.get("chapter_title") or ""))
     return "\n".join(parts)
+
+
+def _citation_status(answer: str, hit_count: int) -> dict[str, bool]:
+    refs = [int(n) for n in CITATION_RE.findall(answer or "")]
+    in_range = bool(refs) and hit_count > 0 and all(1 <= n <= hit_count for n in refs)
+    return {
+        "citation_present": bool(refs),
+        "citation_in_range": in_range,
+        "citation_ok": in_range,
+    }
 
 
 def score_case(item: EvalQuestion, *, hits: list[dict[str, Any]], answer: str, error: str | None = None) -> dict[str, Any]:
@@ -69,11 +89,15 @@ def score_case(item: EvalQuestion, *, hits: list[dict[str, Any]], answer: str, e
             except (TypeError, ValueError):
                 pass
 
-    blob = _text_blob(hits, answer)
+    retrieval_blob = _retrieval_text(hits)
     chapter_ok = bool(item.expected_chapters) and any(ch in hit_chapters for ch in item.expected_chapters)
-    keyword_ok = bool(item.must_keywords) and any(kw in blob for kw in item.must_keywords)
-    retrieval_ok = chapter_ok or keyword_ok or (not item.expected_chapters and not item.must_keywords)
-    citation_ok = bool(CITATION_RE.search(answer or ""))
+    keyword_ok = bool(item.must_keywords) and any(kw in retrieval_blob for kw in item.must_keywords)
+    retrieval_scored = bool(item.expected_chapters or item.must_keywords)
+    if retrieval_scored:
+        retrieval_ok = bool(hits) and (chapter_ok or keyword_ok)
+    else:
+        retrieval_ok = None
+    citation = _citation_status(answer, len(hits or []))
     has_answer = bool((answer or "").strip()) and "无法据此作答" not in (answer or "")
 
     return {
@@ -82,10 +106,14 @@ def score_case(item: EvalQuestion, *, hits: list[dict[str, Any]], answer: str, e
         "tags": item.tags,
         "error": error,
         "retrieval_ok": retrieval_ok,
+        "retrieval_scored": retrieval_scored,
         "chapter_ok": chapter_ok,
         "keyword_ok": keyword_ok,
-        "citation_ok": citation_ok,
+        "citation_ok": citation["citation_ok"],
+        "citation_present": citation["citation_present"],
+        "citation_in_range": citation["citation_in_range"],
         "has_answer": has_answer,
+        "answer_text": answer or "",
         "hit_count": len(hits or []),
         "hit_chapters": sorted(set(hit_chapters)),
         "expected_chapters": item.expected_chapters,
@@ -98,12 +126,13 @@ def aggregate_scores(rows: list[dict[str, Any]]) -> dict[str, Any]:
     if total == 0:
         return {"total": 0, "retrieval_hit_rate": 0.0, "citation_rate": 0.0, "answer_rate": 0.0, "error_rate": 1.0}
     errors = sum(1 for r in rows if r.get("error"))
-    retrieval_hits = sum(1 for r in rows if r.get("retrieval_ok"))
+    scored_rows = [r for r in rows if r.get("retrieval_scored")]
+    retrieval_hits = sum(1 for r in scored_rows if r.get("retrieval_ok"))
     citations = sum(1 for r in rows if r.get("citation_ok"))
     answers = sum(1 for r in rows if r.get("has_answer"))
     return {
         "total": total,
-        "retrieval_hit_rate": round(retrieval_hits / total, 4),
+        "retrieval_hit_rate": round(retrieval_hits / max(len(scored_rows), 1), 4),
         "citation_rate": round(citations / total, 4),
         "answer_rate": round(answers / total, 4),
         "error_rate": round(errors / total, 4),

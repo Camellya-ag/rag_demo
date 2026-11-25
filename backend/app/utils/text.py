@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Iterable
+from typing import Any, Iterable
 
 CHAPTER_RE = re.compile(r"^\s*第\s*([0-9一二三四五六七八九十百零〇两]+)\s*回", re.M)
 CN_NUM = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10, "百": 100}
@@ -211,17 +211,66 @@ def merge_short(items: Iterable[str], chunk_size: int, overlap: int) -> list[str
             start += step
     return out
 ANSWER_CITATION_RE = re.compile(r"[\[【](\d+)[\]】]")
+PLACEHOLDER_CITATION_RE = re.compile(r"[\[【]\s*n\s*[\]】]", flags=re.IGNORECASE)
+
+
+def normalize_answer_citations(answer: str, hit_count: int) -> tuple[str, dict[str, bool]]:
+    """仅做引用格式归一化，不伪造未验证的证据引用。"""
+    text = (answer or "").strip()
+    meta = {
+        "citation_present": False,
+        "citation_in_range": False,
+        "citation_placeholder": False,
+        "auto_citation_added": False,
+    }
+    if hit_count <= 0 or not text:
+        return text, meta
+    meta["citation_placeholder"] = bool(PLACEHOLDER_CITATION_RE.search(text))
+    cleaned = PLACEHOLDER_CITATION_RE.sub("", text).strip()
+    refs = [int(n) for n in ANSWER_CITATION_RE.findall(cleaned)]
+    meta["citation_present"] = bool(refs)
+    meta["citation_in_range"] = bool(refs) and all(1 <= n <= hit_count for n in refs)
+    return cleaned or text, meta
 
 
 def ensure_answer_citations(answer: str, hit_count: int) -> str:
-    """当存在检索命中但模型未输出引用标注时，补一个 [1] 以保证前端与评测一致。"""
-    text = (answer or "").strip()
-    if hit_count <= 0 or not text:
-        return text
-    # 部分模型会输出占位符 [n] 而不是具体序号。
-    if re.search(r"\[n\]", text, flags=re.IGNORECASE):
-        text = re.sub(r"\[n\]", "[1]", text, flags=re.IGNORECASE)
-    if ANSWER_CITATION_RE.search(text):
-        return text
-    return f"{text} [1]"
+    text, _ = normalize_answer_citations(answer, hit_count)
+    return text
+
+
+def select_hits_by_token_budget(
+    hits: list[dict[str, Any]],
+    *,
+    reserved_tokens: int,
+    budget: int,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """按估算 token 预算挑选不重复原文片段。"""
+    remaining = max(0, budget - max(0, reserved_tokens))
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    used = 0
+    for hit in hits:
+        hit_id = str(hit.get("id") or "")
+        if hit_id and hit_id in seen:
+            continue
+        chunk = hit.get("chunk") if isinstance(hit.get("chunk"), dict) else {}
+        text = str(chunk.get("text") or hit.get("text") or "")
+        chunk_tokens = int(chunk.get("tokens") or 0) or estimate_tokens(text)
+        overhead = 24
+        cost = chunk_tokens + overhead
+        if selected and used + cost > remaining:
+            break
+        if not selected and used + cost > remaining:
+            continue
+        selected.append(hit)
+        if hit_id:
+            seen.add(hit_id)
+        used += cost
+    stats = {
+        "budget_tokens": budget,
+        "reserved_tokens": max(0, reserved_tokens),
+        "context_tokens_used": used,
+        "remaining_tokens": max(0, remaining - used),
+    }
+    return selected, stats
 

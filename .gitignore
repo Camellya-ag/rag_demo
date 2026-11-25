@@ -38,6 +38,10 @@ frontweb/.vite-temp/
 dist/
 build/
 frontweb/dist/
+
+# Runtime state backups (local only)
+backend/data/state.json.bak
+backend/data/jobs.json.bak
 coverage/
 
 # Logs and runtime artifacts

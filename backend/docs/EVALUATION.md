@@ -1,59 +1,67 @@
-# RAG 效果评测闭环
+# RAG 效果评测与离线回归
 
-## 目标
+## 资产与用途
 
-为《西游问典》建立可复用的质量回归：
+- 原有 20 题：`backend/data/eval/eval_questions.json`，保留历史基线。
+- 边界样例：`backend/data/eval/eval_offline_regressions.json`，验证无答案、越界引用、多轮和别名。
+- 评分：`backend/app/ai/rag/evaluation.py`；真实评测：`backend/scripts/run_eval.py`。
+- 离线测试使用可控模型与临时状态。完整命令与验收结果见 `docs/superpowers/reviews/2026-11-25-rag-supervisor-review.md`。
 
-- 固定问题集（20 题）
-- 统一指标（检索命中、引用标注、可答率、错误率）
-- 可存档结果 JSON，便于版本对比
+边界样例和原 20 题用途不同，不能混在一起宣称全书效果提升。测试替身验证程序行为，不代替真实模型回答质量评测。
 
-## 资产位置
+## 指标口径
 
-- 评测集：`backend/data/eval/eval_questions.json`
-- 评分逻辑：`backend/app/ai/rag/evaluation.py`
-- 运行脚本：`backend/scripts/run_eval.py`
-- 离线单测：`backend/tests/test_evaluation.py`
-- API 契约单测：`backend/tests/test_api_contract.py`
+| 字段或指标 | 定义与限制 |
+| --- | --- |
+| retrieval_scored | 有预期章节或关键词时才具备检索评分条件。 |
+| retrieval_ok | 必须存在命中，且命中预期章节，或检索文本包含至少一个预期关键词。生成答案不能补足检索命中。无评分预期时为 null。 |
+| retrieval_hit_rate | 只在具备检索评分条件的题中计算比例；章节和关键词是弱代理，不等于证据完整或回答正确。 |
+| citation_present | 答案是否包含数字引用标记。 |
+| citation_in_range / citation_ok | 有当轮证据及数字引用，且所有编号都在 1..len(hits) 内。[99]、占位符 [n] 不能当有效引用。 |
+| citation_rate | 范围有效的引用比例，不是语义证据支持率。 |
+| has_answer / answer_rate | 检查答案非空且不含“无法据此作答”；不是事实正确率，也不能单独衡量无答案题。 |
+| error_rate | 请求或执行异常比例。 |
 
-## 指标定义
+无答案样例核对预期拒答行为；缺检索标注的题不能默认算检索成功。事实正确性与忠实度仍需核验具体断言及对应原文。
 
-| 指标 | 含义 |
-|------|------|
-| `retrieval_hit_rate` | 命中预期章节，或命中文本包含全部 `must_keywords` |
-| `citation_rate` | 答案包含 `[n]` 引用标注 |
-| `answer_rate` | 非空答案且非“无法据此作答” |
-| `error_rate` | 请求异常占比 |
+默认门槛保留为检索命中率 0.75、范围有效引用率 0.70、回答率 0.80、错误率不超过 0.05。门槛不能被解释为答案准确率。
 
-默认阈值（可在脚本中覆盖）：
+## 离线验证
 
-- `retrieval_hit_rate >= 0.75`
-- `citation_rate >= 0.70`
-- `answer_rate >= 0.80`
-- `error_rate <= 0.05`
+评分测试不需要后端或模型：
 
-## 运行方式
+```powershell
+D:\document\rag\rag_examples\.venv\Scripts\python.exe -m unittest backend.tests.test_evaluation -v
+```
+
+完整离线回归使用以下命令（模型调用由传输层保护，Milvus 隔离测试需要本机服务）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File backend\scripts\run_offline_tests.ps1
+```
+
+保护拦截外部调用边界，不替换被测业务方法。测试结果及范围见监督记录。
+
+浏览器回归用 Playwright 打开真实页面，验证分时文字、阶段变化、自然结束、UI 停止及下一轮发送；构建成功不等于页面测试通过。
+
+## 真实模型评测
+
+以下命令产生真实 API 费用，需要已有可用的 8010 服务与正式索引。本批没有运行收费的全量评测：
 
 ```powershell
 cd D:\document\rag\rag_demo
-# 冒烟（前 5 题，会产生真实费用）
+# 前 5 题冒烟
 D:\document\rag\rag_examples\.venv\Scripts\python.exe backend\scripts\run_eval.py --limit 5 --fail-fast
-
-# 全量 20 题
+# 原有 20 题全量
 D:\document\rag\rag_examples\.venv\Scripts\python.exe backend\scripts\run_eval.py --fail-fast
 ```
 
-输出目录：`backend/data/eval/results/eval_YYYYMMDD_HHMMSS.json`
+输出：`backend/data/eval/results/eval_YYYYMMDD_HHMMSS.json`。比较前核对数据集哈希、代码状态、模型和活动索引版本，并保存答案、命中及 trace 标识。版本不可得时标记未知及原因，不能用固定说明文字代替真实版本。
 
-## 建议节奏
+时延区分：latency_ms 是脚本观察的请求耗时；latency_total_ms 是后端全链路耗时；first_token_ms 是后端首个生成 token 的耗时。非流式接口的首字字段不代表浏览器已逐字显示。
 
-1. 每次调整切片/rerank/改写策略后，先跑 `--limit 5` 冒烟。
-2. 发版前跑全量 20 题并归档结果 JSON。
-3. 对比相邻两次 `summary`（命中率、引用率、平均 cost/latency）。
+## 历史基线限制
 
-## 基线（2026-11-24）
+2026-11-24 的 `eval_20261124_210335.json` 覆盖 20 题，记录检索率 0.95、引用率 0.40、回答率 1.00。旧评分曾将生成答案并入检索文本，引用只检查标号，因此不能直接与修正后指标比较。
 
-- 结果：`backend/data/eval/results/eval_20261124_210335.json`
-- 摘要：`retrieval_hit_rate=0.95`，`citation_rate=0.40`，`answer_rate=1.0`
-- 调优：`backend/docs/RETRIEVAL_TUNING.md`
-
+后续 5 题引用率 1.00 只覆盖局部，且曾受自动补标影响，不代表全量质量达标。下次真实评测应按新口径重新建立基线。

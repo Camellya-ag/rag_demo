@@ -202,6 +202,13 @@ async function ask(question, reuse = false) {
   const answerMsg = { id: nextId(), role: 'assistant', status: 'thinking', text: '', hits: [], meta: null }
   answerMsg.trace = createMessageTrace(q)
   messages.value.push(answerMsg)
+  const answerIndex = messages.value.length - 1
+
+  const patchAnswer = (patch) => {
+    const current = messages.value[answerIndex]
+    if (!current) return
+    messages.value[answerIndex] = { ...current, ...patch }
+  }
 
   busy.value = true
   activeRequestId = createRequestId()
@@ -215,54 +222,70 @@ async function ask(question, reuse = false) {
       requestId: activeRequestId,
       signal: askController.signal,
       callbacks: {
-        onStage: (key, patch) => applyStagePatch(key, patch, answerMsg.trace),
+        onStage: (key, patch) => {
+          const current = messages.value[answerIndex]
+          if (current?.trace) applyStagePatch(key, patch, current.trace)
+        },
         onHits: (data) => {
-          answerMsg.hits = data
-          if (answerMsg.trace) answerMsg.trace.hits = data
+          const current = messages.value[answerIndex]
+          const nextTrace = current?.trace ? { ...current.trace, hits: data } : current?.trace
+          patchAnswer({ hits: data, trace: nextTrace })
         },
         onToken: (token) => {
-          if (answerMsg.status === 'thinking') answerMsg.status = 'streaming'
-          answerMsg.text += token
+          const current = messages.value[answerIndex]
+          if (!current) return
+          patchAnswer({
+            status: current.status === 'thinking' ? 'streaming' : current.status,
+            text: `${current.text || ''}${token}`
+          })
         },
         onAnswer: (data) => {
-          answerMsg.text = data.text || answerMsg.text
-          answerMsg.status = 'done'
-          if (data.hits?.length) answerMsg.hits = data.hits
-          if (answerMsg.trace) {
-            answerMsg.trace.hits = answerMsg.hits
-            mergeBackendTrace(answerMsg.trace, data.trace)
-          }
+          const current = messages.value[answerIndex]
+          if (!current) return
+          const nextTrace = current.trace ? { ...current.trace, hits: data.hits?.length ? data.hits : current.hits } : current.trace
+          if (current.trace && data.trace) mergeBackendTrace(nextTrace, data.trace)
           const nextMeta = {
-            latency: data.latency ?? data.meta?.latency ?? answerMsg.meta?.latency,
-            tokens: data.tokens ?? data.meta?.tokens ?? answerMsg.meta?.tokens,
-            cost: data.cost ?? data.meta?.cost ?? answerMsg.meta?.cost,
-            followUps: data.followUps || data.meta?.followUps || answerMsg.meta?.followUps || []
+            latency: data.latency ?? data.meta?.latency ?? current.meta?.latency,
+            tokens: data.tokens ?? data.meta?.tokens ?? current.meta?.tokens,
+            cost: data.cost ?? data.meta?.cost ?? current.meta?.cost,
+            followUps: data.followUps || data.meta?.followUps || current.meta?.followUps || []
           }
-          if (Object.values(nextMeta).some((v) => v !== undefined && v !== null && v !== '')) {
-            answerMsg.meta = { ...(answerMsg.meta || {}), ...nextMeta }
-          }
+          patchAnswer({
+            text: data.text || current.text,
+            status: 'done',
+            hits: data.hits?.length ? data.hits : current.hits,
+            trace: nextTrace,
+            meta: Object.values(nextMeta).some((v) => v !== undefined && v !== null && v !== '')
+              ? { ...(current.meta || {}), ...nextMeta }
+              : current.meta
+          })
         },
         onTrace: (trace) => {
-          if (answerMsg.trace && trace) mergeBackendTrace(answerMsg.trace, typeof trace === 'object' && trace.trace ? trace.trace : trace)
+          const current = messages.value[answerIndex]
+          if (!current?.trace || !trace) return
+          const nextTrace = { ...current.trace }
+          mergeBackendTrace(nextTrace, typeof trace === 'object' && trace.trace ? trace.trace : trace)
+          patchAnswer({ trace: nextTrace })
         },
         onError: (error) => {
-          answerMsg.status = 'error'
-          answerMsg.error = error?.message || '问答失败'
+          patchAnswer({ status: 'error', error: error?.message || '问答失败' })
         }
       }
     })
   } catch (error) {
+    const current = messages.value[answerIndex]
     if (error?.code === 'aborted' || askController.signal.aborted) {
-      answerMsg.status = 'stopped'
-      answerMsg.text = (answerMsg.text || '') + (answerMsg.text ? '\n\n' : '') + '（已停止生成）'
+      const text = (current?.text || '') + (current?.text ? '\n\n' : '') + '（已停止生成）'
+      patchAnswer({ status: 'stopped', text })
     } else {
-      answerMsg.status = 'error'
-      answerMsg.error = error?.message || '问答失败'
+      patchAnswer({ status: 'error', error: error?.message || '问答失败' })
     }
   } finally {
-    if (answerMsg.trace) {
-      finalizeTrace(answerMsg.trace, answerMsg.status)
-      answerMsg.trace = snapshotTrace(answerMsg.trace)
+    const current = messages.value[answerIndex]
+    if (current?.trace) {
+      const nextTrace = { ...current.trace }
+      finalizeTrace(nextTrace, current.status)
+      patchAnswer({ trace: snapshotTrace(nextTrace) })
     }
     busy.value = false
     askController = null

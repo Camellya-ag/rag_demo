@@ -206,20 +206,31 @@ class MilvusRepo:
         fused = self.rrf_fuse_channels([dense, sparse])
         return dense, sparse, fused
 
-    def hybrid_search(self, collection: str, dense_vector: list[float], sparse_queries: list[str], limit: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    def hybrid_search(
+        self,
+        collection: str,
+        dense_vector: list[float],
+        sparse_queries: list[str],
+        limit: int,
+        *,
+        sparse_hits: list[dict[str, Any]] | None = None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
         dense = self.dense_search(collection, dense_vector, limit)
-        sparse_merged: dict[str, dict[str, Any]] = {}
-        for q in sparse_queries:
-            q = str(q or "").strip()
-            if not q:
-                continue
-            for row in self.sparse_search(collection, q, limit):
-                prev = sparse_merged.get(row["id"])
-                if not prev or row["score"] > prev["score"]:
-                    sparse_merged[row["id"]] = row
-        sparse = sorted(sparse_merged.values(), key=lambda x: x["score"], reverse=True)[:limit]
-        for i, row in enumerate(sparse, 1):
-            row["rank"] = i
+        if sparse_hits is not None:
+            sparse = list(sparse_hits)
+        else:
+            sparse_merged: dict[str, dict[str, Any]] = {}
+            for q in sparse_queries:
+                q = str(q or "").strip()
+                if not q:
+                    continue
+                for row in self.sparse_search(collection, q, limit):
+                    prev = sparse_merged.get(row["id"])
+                    if not prev or row["score"] > prev["score"]:
+                        sparse_merged[row["id"]] = row
+            sparse = sorted(sparse_merged.values(), key=lambda x: x["score"], reverse=True)[:limit]
+            for i, row in enumerate(sparse, 1):
+                row["rank"] = i
         fused = self.rrf_fuse(dense, sparse)
         return dense, sparse, fused
 

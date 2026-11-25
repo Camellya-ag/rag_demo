@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -48,7 +49,14 @@ class ApiContractTests(unittest.TestCase):
         for key in ("mode", "chunk_count", "qa_pair_count", "total_cost", "stages", "requires_confirmation"):
             self.assertIn(key, body)
 
-    def test_chat_query_json_events(self) -> None:
+    @patch("backend.app.api.routes.rag_chat_service.run")
+    def test_chat_query_json_events(self, run_mock) -> None:
+        run_mock.return_value = {
+            "text": "答案[1]",
+            "hits": [],
+            "meta": {"trace_id": "trace_contract", "latency": 1, "tokens": 2},
+            "trace": {"trace_id": "trace_contract", "stages": {}},
+        }
         resp = self.client.post(
             "/api/chat/query",
             headers={"Accept": "application/json"},

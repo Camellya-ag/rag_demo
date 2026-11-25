@@ -77,6 +77,20 @@
 
 `stage` 固定顺序：`rewrite` → `embed` → `retrieve` → `fusion` → `rerank` → `assemble` → `generate`
 
+阶段或 token 产生后即可发送，不等待整次回答完成。跳过、停止和异常路径可能不经过全部阶段。正常完成发送 `done`，异常路径发送 `error` 和 `done`。
+
+### 时延、费用与证据
+
+- `answer.meta.latency` 保留生成阶段的毫秒数；正常生成另提供 `total_latency`（全链路毫秒数）和 `first_token_ms`（后端首个生成 token 的耗时）。非流式的首字字段表示完整回答返回时间，提前终止路径可能缺省这些字段。
+- usage 不完整时费用可能为 `null`，不能按零处理；取消后已经发生的阶段费用仍保留。
+- 原问题与改写一致时复用向量和召回；同一请求内去重 BM25，复用情况记录在 trace。
+- 组装按 2048 的估算 token 预算选择证据。这是业务 prompt 的估算值，不是模型 tokenizer 的精确上下文计数。
+- `hits`、prompt 中的编号和最终引用使用同一份入选片段列表；没有入选证据或 prompt 超预算时跳过答案生成。
+- 不再为缺失引用猜补 `[1]`，也不把 `[n]` 猜成第一条证据。编号范围有效不证明语义证据充分。
+- 对话历史用于理解追问，历史助手回答不作为原文证据；多人物歧义保留为未消解状态。
+
+`POST /api/chat/stop` 设置指定请求的取消信号；客户端断连也触发清理。停止与断连测试采用可控模型，不依赖收费接口。
+
 ## 索引流程
 
 1. `POST /api/knowledge/index/estimate`（`mode=initial|rebuild`）

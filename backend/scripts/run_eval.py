@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.error
@@ -10,6 +12,7 @@ import urllib.request
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
@@ -21,6 +24,69 @@ from backend.app.ai.rag.evaluation import (
     passes_thresholds,
     score_case,
 )
+from backend.app.config import LLM_MODEL_DEFAULT
+
+
+def resolve_code_version(env: dict[str, str] | None = None) -> str:
+    env = env or {}
+    override = env.get("XIYOU_CODE_VERSION") or os.getenv("XIYOU_CODE_VERSION")
+    if override:
+        return override
+    try:
+        short = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).resolve().parents[2],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        dirty = subprocess.check_output(
+            ["git", "status", "--porcelain"],
+            cwd=Path(__file__).resolve().parents[2],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        if not short:
+            return "unknown"
+        return f"{short}{'-dirty' if dirty else ''}"
+    except Exception:
+        return "unknown"
+
+
+def resolve_index_version(base_url: str) -> tuple[str | None, str]:
+    health_url = base_url.rstrip("/") + "/api/health"
+    try:
+        with urllib.request.urlopen(health_url, timeout=8) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        version = payload.get("active_index_version") or payload.get("active_version")
+        if version:
+            return str(version), "health"
+        return None, "health:missing_active_index_version"
+    except urllib.error.URLError as exc:
+        return None, f"health_unreachable:{exc.reason}"
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        return None, f"health_error:{exc}"
+
+
+def build_eval_metadata(
+    base_url: str,
+    dataset_path: Path | None = None,
+    *,
+    env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    env = env or {}
+    resolved_dataset = dataset_path or (Path(__file__).resolve().parents[1] / "data" / "eval" / "eval_questions.json")
+    index_version, index_source = resolve_index_version(base_url)
+    model = env.get("XIYOU_EVAL_MODEL") or os.getenv("XIYOU_EVAL_MODEL") or LLM_MODEL_DEFAULT
+    return {
+        "code_version": resolve_code_version(env),
+        "model": model,
+        "index_version": index_version,
+        "index_version_source": index_source,
+        "dataset_path": str(resolved_dataset),
+        "dataset_sha256": _dataset_sha256(resolved_dataset),
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "base_url": base_url,
+    }
 
 
 def _request_json(url: str, payload: dict) -> dict:
@@ -51,8 +117,8 @@ def _extract_answer(events: list[dict]) -> tuple[str, list[dict], dict, str | No
         elif ptype == "answer":
             answer = str(packet.get("text") or "")
             meta = packet.get("meta") or {}
-            if packet.get("hits"):
-                hits = packet.get("hits") or hits
+            if "hits" in packet:
+                hits = packet.get("hits") or []
         elif ptype == "error":
             error = str(packet.get("message") or "unknown error")
     return answer, hits, meta, error
@@ -72,6 +138,7 @@ def run_live(base_url: str, questions, *, streaming: bool = False) -> list[dict]
                     "top_k": 4,
                     "temperature": 0.2,
                     "streaming": streaming,
+                    "model": os.getenv("XIYOU_EVAL_MODEL") or LLM_MODEL_DEFAULT,
                 },
                 "messages": [],
             }
@@ -85,9 +152,18 @@ def run_live(base_url: str, questions, *, streaming: bool = False) -> list[dict]
         row = score_case(item, hits=hits, answer=answer, error=error)
         row["latency_ms"] = latency_ms if latency_ms else int((time.perf_counter() - started) * 1000)
         row["cost"] = meta.get("cost")
+        row["latency_total_ms"] = meta.get("total_latency")
+        row["first_token_ms"] = meta.get("first_token_ms")
         row["trace_id"] = meta.get("trace_id")
+        row["hits"] = hits
         rows.append(row)
     return rows
+
+
+def _dataset_sha256(path: Path | None) -> str | None:
+    if not path or not path.exists():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def main() -> int:
@@ -111,12 +187,13 @@ def main() -> int:
     output_dir = Path(__file__).resolve().parents[1] / "data" / "eval" / "results"
     output_dir.mkdir(parents=True, exist_ok=True)
     out = Path(args.output) if args.output else output_dir / f"eval_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    metadata = build_eval_metadata(args.base_url, dataset_path)
     payload = {
-        "created_at": datetime.now().isoformat(timespec="seconds"),
-        "base_url": args.base_url,
+        **metadata,
         "summary": summary,
         "threshold_ok": ok,
         "threshold_failures": failures,
+        "metrics_note": "citation_ok 仅表示引用编号在当轮 hits 范围内，不代表语义证据充分。",
         "cases": rows,
     }
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

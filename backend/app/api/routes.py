@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import asyncio
+import queue
+import threading
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -215,59 +218,146 @@ def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def _format_stage_packet(key: str, patch: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    if key in {"hits", "token"}:
+        packet = {**patch}
+        event_type = packet.get("type", key)
+    else:
+        packet = {"type": "stage", "key": key, "patch": patch, **patch}
+        event_type = "stage"
+    return event_type, packet
+
+
+def _make_emit(emit_fn: Callable[[str, dict[str, Any]], None] | None) -> Callable[[str, dict[str, Any]], None]:
+    def emit(key: str, patch: dict[str, Any]) -> None:
+        if emit_fn is None:
+            return
+        emit_fn(key, patch)
+
+    return emit
+
+
+def _execute_chat(
+    body: ChatBody,
+    request_id: str,
+    cancel_event,
+    emit: Callable[[str, dict[str, Any]], None],
+) -> dict[str, Any]:
+    return rag_chat_service.run(
+        {
+            "request_id": request_id,
+            "question": body.question,
+            "settings": body.settings or {},
+            "messages": body.messages,
+        },
+        emit,
+        cancel_event=cancel_event,
+    )
+
+
+
+def _queue_put(event_queue: "queue.Queue[str | None]", item: str, *, alive_event, timeout: float = 0.2) -> bool:
+    while alive_event.is_set():
+        try:
+            event_queue.put(item, timeout=timeout)
+            return True
+        except queue.Full:
+            continue
+    return False
+
+
 @router.post("/chat/query")
-def chat_query(body: ChatBody, request: Request):
+async def chat_query(body: ChatBody, request: Request):
     request_id = body.request_id or uuid.uuid4().hex
     cancel_event = store.register_cancel(request_id)
 
-    def event_stream():
-        events: list[str] = []
-
-        def emit(key: str, patch: dict[str, Any]):
-            if key in {"hits", "token"}:
-                packet = {**patch}
-            else:
-                packet = {"type": "stage", "key": key, "patch": patch, **patch}
-            events.append(_sse(packet.get("type", "stage") if key in {"hits", "token"} else "stage", packet))
-
-        try:
-            result = rag_chat_service.run(
-                {"request_id": request_id, "question": body.question, "settings": body.settings or {}, "messages": body.messages},
-                emit,
-                cancel_event=cancel_event,
-            )
-            events.append(_sse("trace", {"type": "trace", "trace": result.get("trace"), "trace_id": result["meta"].get("trace_id")}))
-            events.append(_sse("answer", {"type": "answer", "text": result.get("text"), "hits": result.get("hits"), "meta": result.get("meta"), "trace_id": result["meta"].get("trace_id")}))
-            events.append(_sse("done", {"type": "done", "ok": True, "trace_id": result["meta"].get("trace_id")}))
-        except Exception as exc:
-            events.append(_sse("error", {"type": "error", "message": str(exc)}))
-            events.append(_sse("done", {"type": "done", "ok": False}))
-        finally:
-            store.drop_cancel(request_id)
-        return events
-
     accept = request.headers.get("accept", "")
     if "text/event-stream" in accept:
-        def stream():
-            for chunk in event_stream():
-                yield chunk
-        return StreamingResponse(stream(), media_type="text/event-stream")
+        loop = asyncio.get_running_loop()
+        event_queue: queue.Queue[str | None] = queue.Queue(maxsize=4)
+        alive_event = threading.Event()
+        alive_event.set()
+        worker_done = threading.Event()
+        worker_ref: dict[str, threading.Thread | None] = {"thread": None}
 
-    # 非流式兼容：一次性返回 events
-    packets = []
-    def collect_emit(key, patch):
-        if key in {"hits", "token"}:
-            packets.append({"type": key, **patch})
-        else:
-            packets.append({"type": "stage", "key": key, "patch": patch, **patch})
+        def publish(key: str, patch: dict[str, Any]) -> None:
+            if cancel_event.is_set() or not alive_event.is_set():
+                return
+            event_type, packet = _format_stage_packet(key, patch)
+            payload = _sse(event_type, packet)
+            if not _queue_put(event_queue, payload, alive_event=alive_event):
+                cancel_event.set()
+
+        def worker() -> None:
+            try:
+                result = _execute_chat(body, request_id, cancel_event, _make_emit(publish))
+                if not alive_event.is_set() or cancel_event.is_set():
+                    return
+                trace_id = (result.get("meta") or {}).get("trace_id")
+                _queue_put(event_queue, _sse("trace", {"type": "trace", "trace": result.get("trace"), "trace_id": trace_id}), alive_event=alive_event)
+                _queue_put(
+                    event_queue,
+                    _sse(
+                        "answer",
+                        {"type": "answer", "text": result.get("text"), "hits": result.get("hits"), "meta": result.get("meta"), "trace_id": trace_id},
+                    ),
+                    alive_event=alive_event,
+                )
+                _queue_put(event_queue, _sse("done", {"type": "done", "ok": True, "trace_id": trace_id}), alive_event=alive_event)
+            except Exception as exc:
+                _queue_put(event_queue, _sse("error", {"type": "error", "message": str(exc)}), alive_event=alive_event)
+                _queue_put(event_queue, _sse("done", {"type": "done", "ok": False}), alive_event=alive_event)
+            finally:
+                store.drop_cancel(request_id)
+                alive_event.clear()
+                worker_done.set()
+                try:
+                    event_queue.put_nowait(None)
+                except queue.Full:
+                    cancel_event.set()
+
+        def poll_queue() -> str | None:
+            if worker_done.is_set() and event_queue.empty():
+                return None
+            try:
+                return event_queue.get(timeout=0.2)
+            except queue.Empty:
+                return ""
+
+        worker_ref["thread"] = threading.Thread(target=worker, daemon=True)
+        worker_ref["thread"].start()
+
+        async def event_stream():
+            try:
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    item = await asyncio.to_thread(poll_queue)
+                    if item is None:
+                        break
+                    if item == "":
+                        continue
+                    yield item
+            finally:
+                alive_event.clear()
+                cancel_event.set()
+                worker = worker_ref.get("thread")
+                if worker and worker.is_alive():
+                    await asyncio.to_thread(worker.join, 2)
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    packets: list[dict[str, Any]] = []
+
+    def collect_emit(key: str, patch: dict[str, Any]) -> None:
+        event_type, packet = _format_stage_packet(key, patch)
+        packets.append({"type": event_type, **packet})
+
     try:
-        result = rag_chat_service.run(
-            {"request_id": request_id, "question": body.question, "settings": body.settings or {}, "messages": body.messages},
-            collect_emit,
-            cancel_event=cancel_event,
-        )
+        result = await asyncio.to_thread(_execute_chat, body, request_id, cancel_event, collect_emit)
+        trace_id = (result.get("meta") or {}).get("trace_id")
         packets.extend([
-            {"type": "trace", "trace": result.get("trace"), "trace_id": result["meta"].get("trace_id")},
+            {"type": "trace", "trace": result.get("trace"), "trace_id": trace_id},
             {"type": "answer", "text": result.get("text"), "hits": result.get("hits"), "meta": result.get("meta")},
             {"type": "done", "ok": True},
         ])

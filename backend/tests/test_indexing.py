@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from datetime import datetime
 from unittest.mock import patch
 
 from backend.app.config import SOURCE_FILE
@@ -88,6 +89,23 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertEqual(job_args[0][0], "job_x")
         self.assertEqual(job_args[1]["status"], "failed")
 
+    @patch("backend.app.ai.rag.indexing.qa_generation_service")
+    @patch("backend.app.ai.rag.indexing.store")
+    def test_run_job_failure_restores_ready_state(self, state_store, qa_gen) -> None:
+        state_store.get_state.return_value = {
+            "active_collection": "good_coll",
+            "active_version": "v_good",
+            "status": "ready",
+            "query_collection": "good_coll",
+            "query_mode": "production",
+            "chunk_count": 12,
+        }
+        with patch.object(self.service, "_select_chunks", side_effect=RuntimeError("boom")):
+            self.service._run_job("job_fail", "rebuild", "new_coll", "v_new")
+        restored = state_store.update_state.call_args[0][0]
+        self.assertEqual(restored["active_collection"], "good_coll")
+        self.assertEqual(restored["status"], "ready")
+
     @patch("backend.app.ai.rag.indexing.store")
     @patch("backend.app.ai.rag.indexing.qa_generation_service")
     @patch("backend.app.ai.rag.indexing.embedding_client")
@@ -138,6 +156,36 @@ class IndexingServiceTests(unittest.TestCase):
         qa_store.sync_with_state.assert_called_once()
         state_patch = state_store.update_state.call_args[0][0]
         self.assertEqual(state_patch["active_collection"], "new_coll")
+
+    @patch("backend.app.ai.rag.indexing.datetime")
+    @patch("backend.app.ai.rag.indexing.uuid.uuid4")
+    def test_start_generates_unique_version_per_second(self, uuid_mock, dt_mock) -> None:
+        dt_mock.now.return_value = datetime(2026, 11, 25, 12, 30, 45)
+        uuid_mock.return_value = type("UUID", (), {"hex": "abcd1111efgh2222"})()
+        with patch("backend.app.ai.rag.indexing.store") as state_store:
+            state_store.create_job.return_value = {"job_id": "job_1"}
+            with patch("backend.app.ai.rag.indexing.threading.Thread") as thread_mock:
+                thread_mock.return_value.start = lambda: None
+                out = self.service.start("rebuild", confirmed=True)
+        self.assertEqual(out["job"]["job_id"], "job_1")
+        create_args = state_store.create_job.call_args.kwargs
+        self.assertEqual(create_args["version"], "v20261125123045_abcd")
+        self.assertEqual(create_args["collection"], "xiyou_rag_v20261125123045_abcd")
+
+    @patch("backend.app.ai.rag.indexing.store")
+    def test_start_queues_second_job_without_publishing_previous_index(self, state_store) -> None:
+        state_store.create_job.side_effect = [
+            {"job_id": "job_a", "version": "v_a", "collection": "good_coll"},
+            {"job_id": "job_b", "version": "v_b", "collection": "bad_coll"},
+        ]
+        with patch("backend.app.ai.rag.indexing.threading.Thread") as thread_mock:
+            thread_mock.return_value.start = lambda: None
+            first = self.service.start("rebuild", confirmed=True)
+            second = self.service.start("rebuild", confirmed=True)
+        self.assertEqual(first["job"]["job_id"], "job_a")
+        self.assertEqual(second["job"]["job_id"], "job_b")
+        self.assertEqual(state_store.create_job.call_count, 2)
+        self.assertEqual(thread_mock.call_count, 2)
 
 
 if __name__ == "__main__":
