@@ -27,6 +27,7 @@ class EvalQuestion:
     expected_chapters: list[int]
     must_keywords: list[str]
     tags: list[str]
+    reference_answer: str = ""
 
     @classmethod
     def from_dict(cls, row: dict[str, Any]) -> "EvalQuestion":
@@ -36,6 +37,7 @@ class EvalQuestion:
             expected_chapters=[int(x) for x in (row.get("expected_chapters") or [])],
             must_keywords=[str(x).strip() for x in (row.get("must_keywords") or []) if str(x).strip()],
             tags=[str(x).strip() for x in (row.get("tags") or []) if str(x).strip()],
+            reference_answer=str(row.get("reference_answer") or "").strip(),
         )
 
 

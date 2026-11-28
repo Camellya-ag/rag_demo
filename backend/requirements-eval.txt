@@ -1,0 +1,16 @@
+# 仅用于 backend/scripts/run_eval.py --ragas（CLI 评测，非 FastAPI 运行时依赖）
+# 安装：pip install -r backend/requirements-eval.txt
+ragas==0.1.21
+datasets==5.2.0
+pyarrow>=16.0.0
+pysbd>=0.3.4
+langchain==0.3.30
+langchain-core==0.3.86
+langchain-community==0.3.21
+langchain-openai==0.2.14
+langchain-text-splitters==0.3.11
+dataclasses-json>=0.6.7
+nest-asyncio>=1.6.0
+appdirs>=1.4.4
+diskcache>=5.6.3
+openpyxl>=3.1.0

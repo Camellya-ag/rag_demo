@@ -24,6 +24,7 @@ from backend.app.ai.rag.evaluation import (
     passes_thresholds,
     score_case,
 )
+from backend.app.ai.rag.ragas_eval import DEFAULT_METRIC_NAMES, merge_ragas_scores
 from backend.app.config import LLM_MODEL_DEFAULT
 
 
@@ -173,6 +174,16 @@ def main() -> int:
     parser.add_argument("--dataset", default="", help="自定义评测集 JSON 路径")
     parser.add_argument("--output", default="", help="结果输出路径，默认写到 backend/data/eval/results/")
     parser.add_argument("--fail-fast", action="store_true", help="阈值未达标时返回非 0")
+    parser.add_argument(
+        "--ragas",
+        action="store_true",
+        help="在规则评分后运行 RAGAS 语义指标（额外 LLM/Embedding 费用）",
+    )
+    parser.add_argument(
+        "--ragas-metrics",
+        default=",".join(DEFAULT_METRIC_NAMES),
+        help="逗号分隔的 RAGAS 指标名，默认全套",
+    )
     args = parser.parse_args()
 
     dataset_path = Path(args.dataset) if args.dataset else None
@@ -184,13 +195,22 @@ def main() -> int:
     summary = aggregate_scores(rows)
     ok, failures = passes_thresholds(summary)
 
+    ragas_summary: dict[str, Any] | None = None
+    ragas_meta: dict[str, Any] = {"ragas_enabled": False}
+    if args.ragas:
+        metric_names = [p.strip() for p in args.ragas_metrics.split(",") if p.strip()]
+        rows, ragas_summary, ragas_meta = merge_ragas_scores(rows, questions, metric_names=metric_names)
+
     output_dir = Path(__file__).resolve().parents[1] / "data" / "eval" / "results"
     output_dir.mkdir(parents=True, exist_ok=True)
     out = Path(args.output) if args.output else output_dir / f"eval_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     metadata = build_eval_metadata(args.base_url, dataset_path)
     payload = {
         **metadata,
+        **ragas_meta,
         "summary": summary,
+        "ragas_summary": ragas_summary,
+        "ragas_thresholds": None,
         "threshold_ok": ok,
         "threshold_failures": failures,
         "metrics_note": "citation_ok 仅表示引用编号在当轮 hits 范围内，不代表语义证据充分。",

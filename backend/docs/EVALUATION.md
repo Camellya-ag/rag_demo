@@ -2,9 +2,9 @@
 
 ## 资产与用途
 
-- 原有 20 题：`backend/data/eval/eval_questions.json`，保留历史基线。
+- 原有 20 题：`backend/data/eval/eval_questions.json`（含 `reference_answer`，供 RAGAS），保留历史基线。
 - 边界样例：`backend/data/eval/eval_offline_regressions.json`，验证无答案、越界引用、多轮和别名。
-- 评分：`backend/app/ai/rag/evaluation.py`；真实评测：`backend/scripts/run_eval.py`。
+- 评分：`backend/app/ai/rag/evaluation.py`；RAGAS：`backend/app/ai/rag/ragas_eval.py`；真实评测：`backend/scripts/run_eval.py`。
 - 离线测试使用可控模型与临时状态。完整命令与验收结果见 `docs/superpowers/reviews/2026-11-25-rag-supervisor-review.md`。
 
 边界样例和原 20 题用途不同，不能混在一起宣称全书效果提升。测试替身验证程序行为，不代替真实模型回答质量评测。
@@ -25,6 +25,28 @@
 无答案样例核对预期拒答行为；缺检索标注的题不能默认算检索成功。事实正确性与忠实度仍需核验具体断言及对应原文。
 
 默认门槛保留为检索命中率 0.75、范围有效引用率 0.70、回答率 0.80、错误率不超过 0.05。门槛不能被解释为答案准确率。
+
+## RAGAS 语义指标（可选）
+
+RAGAS 五指标与召回辨析见 **[docs/blog/06-RAGAS五大指标读分指南.md](../../docs/blog/06-RAGAS五大指标读分指南.md)**；工程速查见 **[RAGAS.md](./RAGAS.md)**。
+
+在规则指标之上，可用 [RAGAS](https://docs.ragas.io/) 评估忠实度与答案质量。依赖**单独安装**（不进入 FastAPI 运行时）：
+
+```powershell
+pip install -r backend/requirements-eval.txt
+```
+
+| RAGAS 字段 | 含义（简述） |
+| --- | --- |
+| faithfulness | 回答是否可由检索 contexts 支撑 |
+| answer_relevancy | 回答与问题的相关性 |
+| context_precision | 检索片段与问题的精确度 |
+| context_recall | 检索是否覆盖参考答案所需信息 |
+| answer_correctness | 回答与 `reference_answer` 的一致性 |
+
+`citation_ok` 与 RAGAS 互补：前者只校验引用编号范围，后者用语义/LLM 评判质量。**`--fail-fast` 仅针对规则阈值**，RAGAS 暂不设硬门槛。
+
+环境变量：`XIYOU_RAGAS_LLM_MODEL`、`XIYOU_RAGAS_EMBEDDING_MODEL`（默认与评测模型/embedding 一致）、`XIYOU_RAGAS_MAX_WORKERS`（默认 4）。
 
 ## 离线验证
 
@@ -54,9 +76,14 @@ cd D:\document\rag\rag_demo
 D:\document\rag\rag_examples\.venv\Scripts\python.exe backend\scripts\run_eval.py --limit 5 --fail-fast
 # 原有 20 题全量
 D:\document\rag\rag_examples\.venv\Scripts\python.exe backend\scripts\run_eval.py --fail-fast
+# 规则分 + RAGAS（每题约 1 次 chat + 多轮评测 LLM/Embedding 调用）
+D:\document\rag\rag_examples\.venv\Scripts\python.exe backend\scripts\run_eval.py --limit 5 --ragas
+D:\document\rag\rag_examples\.venv\Scripts\python.exe backend\scripts\run_eval.py --ragas
 ```
 
 输出：`backend/data/eval/results/eval_YYYYMMDD_HHMMSS.json`。比较前核对数据集哈希、代码状态、模型和活动索引版本，并保存答案、命中及 trace 标识。版本不可得时标记未知及原因，不能用固定说明文字代替真实版本。
+
+启用 `--ragas` 时，同一文件增加 `ragas_summary`、`ragas_model`、`cases[].ragas`；无 `reference_answer` 或请求失败的题记 `ragas_skipped_reason`。
 
 时延区分：latency_ms 是脚本观察的请求耗时；latency_total_ms 是后端全链路耗时；first_token_ms 是后端首个生成 token 的耗时。非流式接口的首字字段不代表浏览器已逐字显示。
 

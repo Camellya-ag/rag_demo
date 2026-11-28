@@ -22,6 +22,7 @@ class EvaluationTests(unittest.TestCase):
         questions = load_eval_questions()
         self.assertGreaterEqual(len(questions), 20)
         self.assertTrue(all(isinstance(q, EvalQuestion) for q in questions))
+        self.assertTrue(all(q.reference_answer for q in questions))
 
     def test_score_case_chapter_and_citation(self) -> None:
         item = EvalQuestion(
